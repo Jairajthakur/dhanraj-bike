@@ -50,12 +50,13 @@
       "typedRoutes": true,
       "reactCompiler": true
     },
+"reactCompiler": true
+    },
     "extra": {
       "router": {
-        "origin": "https://replit.com/"
+        "origin": "https://dhanraj-production.up.railway.app"
       },
-      "eas": {
-        "projectId": "9252286f-14cc-4aec-b1dc-0cd2c549cb8e"
+    
       }
     }
   }
