@@ -55,7 +55,6 @@
     "extra": {
       "router": {
         "origin": "https://dhanraj-production.up.railway.app"
-      },
-    
+      }
       }
     }
