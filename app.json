@@ -33,7 +33,7 @@
       [
         "expo-router",
         {
-          "origin": "https://replit.com/"
+          "origin": "https://dhanraj-production.up.railway.app"
         }
       ],
       "expo-font",
@@ -50,11 +50,13 @@
       "typedRoutes": true,
       "reactCompiler": true
     },
-"reactCompiler": true
-    },
     "extra": {
       "router": {
         "origin": "https://dhanraj-production.up.railway.app"
-      }
+      },
+      "eas": {
+        "projectId": ""
       }
     }
+  }
+}
