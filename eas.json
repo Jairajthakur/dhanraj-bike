@@ -7,11 +7,10 @@
     "preview": {
       "distribution": "internal",
       "android": {
-        "buildType": "apk",
-        "gradleCommand": ":app:assembleRelease"
+        "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_DOMAIN": "dhanraj-bikes.replit.app"
+        "EXPO_PUBLIC_API_URL": "https://dhanraj-production.up.railway.app"
       }
     },
     "production": {
@@ -19,7 +18,7 @@
         "buildType": "app-bundle"
       },
       "env": {
-        "EXPO_PUBLIC_DOMAIN": "dhanraj-bikes.replit.app"
+        "EXPO_PUBLIC_API_URL": "https://dhanraj-production.up.railway.app"
       }
     }
   },
