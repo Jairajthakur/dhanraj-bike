@@ -103,7 +103,7 @@ async function runMigrations() {
 async function main() {
   await runMigrations();
   console.log("🚀 Starting server...");
-  const child = spawn("node", ["server_dist/index.js"], {
+  const child = spawn("node", ["--experimental-vm-modules", "server_dist/index.js"], {
     stdio: "inherit",
     env: process.env,
   });
