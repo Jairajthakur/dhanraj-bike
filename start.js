@@ -1,22 +1,14 @@
-// start.js — runs at Railway startup
-// 1. Creates all DB tables (safe, idempotent)
-// 2. Then launches the compiled server
-
-import pg from "pg";
-import { spawn } from "child_process";
-
-const { Pool } = pg;
+const { Pool } = require("pg");
+const { spawn } = require("child_process");
 
 async function runMigrations() {
   const url = process.env.DATABASE_URL;
   if (!url) {
-    console.error("❌ DATABASE_URL is not set — cannot run migrations");
+    console.error("DATABASE_URL is not set");
     process.exit(1);
   }
-
-  console.log("🔄 Running database migrations...");
+  console.log("Running database migrations...");
   const pool = new Pool({ connectionString: url });
-
   try {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS users (
@@ -28,7 +20,6 @@ async function runMigrations() {
         push_token TEXT,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
-
       CREATE TABLE IF NOT EXISTS allocations (
         id SERIAL PRIMARY KEY,
         loan_no TEXT NOT NULL DEFAULT '',
@@ -55,7 +46,6 @@ async function runMigrations() {
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
-
       CREATE TABLE IF NOT EXISTS repo_allocations (
         id SERIAL PRIMARY KEY,
         loan_no TEXT NOT NULL DEFAULT '',
@@ -82,7 +72,6 @@ async function runMigrations() {
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
-
       CREATE TABLE IF NOT EXISTS notifications (
         id SERIAL PRIMARY KEY,
         fos_user_id INTEGER NOT NULL,
@@ -94,21 +83,18 @@ async function runMigrations() {
         is_read BOOLEAN NOT NULL DEFAULT FALSE,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
-
       CREATE TABLE IF NOT EXISTS user_sessions (
         sid VARCHAR NOT NULL PRIMARY KEY,
         sess JSON NOT NULL,
         expire TIMESTAMPTZ NOT NULL
       );
-
       CREATE INDEX IF NOT EXISTS IDX_session_expire ON user_sessions (expire);
       CREATE INDEX IF NOT EXISTS idx_allocations_reg ON allocations (LOWER(registration_no));
       CREATE INDEX IF NOT EXISTS idx_allocations_chassis ON allocations (LOWER(chassis_no));
       CREATE INDEX IF NOT EXISTS idx_repo_reg ON repo_allocations (LOWER(registration_no));
       CREATE INDEX IF NOT EXISTS idx_repo_chassis ON repo_allocations (LOWER(chassis_no));
     `);
-
-    console.log("✅ Migrations complete — all tables ready");
+    console.log("Migrations complete");
   } finally {
     await pool.end();
   }
@@ -116,13 +102,11 @@ async function runMigrations() {
 
 async function main() {
   await runMigrations();
-
-  console.log("🚀 Starting server...");
+  console.log("Starting server...");
   const child = spawn("node", ["server_dist/index.mjs"], {
     stdio: "inherit",
     env: process.env,
   });
-
   child.on("exit", (code) => process.exit(code ?? 0));
 }
 
