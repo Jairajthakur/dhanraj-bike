@@ -24,14 +24,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Setup Expo
-        uses: expo/expo-github-action@v8
-        with:
-          expo-version: latest
-          eas-version: latest
-          token: ${{ secrets.EXPO_TOKEN }}
+      - name: Install EAS CLI
+        run: npm install -g eas-cli
 
-      - name: Build APK with EAS
+      - name: Build APK (local build)
         run: eas build --platform android --profile preview --non-interactive --local --output ./build/app.apk
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
