@@ -1,1 +1,11 @@
-"startCommand": "node start.js"
+{
+  "build": {
+    "builder": "NIXPACKS",
+    "buildCommand": "npm install --legacy-peer-deps && npm run server:build"
+  },
+  "deploy": {
+    "startCommand": "node start.js",
+    "healthcheckPath": "/health",
+    "healthcheckTimeout": 60
+  }
+}
