@@ -1,17 +1,21 @@
 {
   "cli": {
-    "version": ">= 5.0.0",
-    "appVersionSource": "local"
+    "version": ">= 16.0.0"
   },
   "build": {
-    "production": {
-      "android": {
-        "buildType": "apk"
-      },
-      "resourceClass": "medium",
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal"
+    },
+    "preview": {
+      "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://dhanraj-bike-production.up.railway.app",
-        "EAS_BUILD_NO_EXPO_GO_WARNING": "true"
+        "EXPO_PUBLIC_DOMAIN": "dhanraj-bike-production.up.railway.app"
+      }
+    },
+    "production": {
+      "env": {
+        "EXPO_PUBLIC_DOMAIN": "dhanraj-bike-production.up.railway.app"
       }
     }
   },
@@ -19,4 +23,3 @@
     "production": {}
   }
 }
-
