@@ -19,11 +19,8 @@ function setupCors(app: express.Application) {
   app.use((req, res, next) => {
     const origin = req.header("origin");
 
-    // Allow all origins for mobile app (React Native / Expo APK has no origin)
-    // and allow any configured domain
     const allowedOrigins = new Set<string>();
 
-    // Replit domains (kept for dev compatibility)
     if (process.env.REPLIT_DEV_DOMAIN) {
       allowedOrigins.add(`https://${process.env.REPLIT_DEV_DOMAIN}`);
     }
@@ -33,12 +30,10 @@ function setupCors(app: express.Application) {
       });
     }
 
-    // Railway domain
     if (process.env.RAILWAY_PUBLIC_DOMAIN) {
       allowedOrigins.add(`https://${process.env.RAILWAY_PUBLIC_DOMAIN}`);
     }
 
-    // Custom allowed origins from env
     if (process.env.ALLOWED_ORIGINS) {
       process.env.ALLOWED_ORIGINS.split(",").forEach((d) => {
         allowedOrigins.add(d.trim());
@@ -49,14 +44,11 @@ function setupCors(app: express.Application) {
       origin?.startsWith("http://localhost:") ||
       origin?.startsWith("http://127.0.0.1:");
 
-    // Mobile apps (React Native) send requests without an origin header
-    // So if there's no origin, we allow it (it's the APK making the request)
     if (!origin) {
       res.header("Access-Control-Allow-Origin", "*");
     } else if (isLocalhost || allowedOrigins.has(origin)) {
       res.header("Access-Control-Allow-Origin", origin);
     } else {
-      // Allow all origins in production for mobile app support
       res.header("Access-Control-Allow-Origin", origin);
     }
 
@@ -174,15 +166,26 @@ function serveLandingPage({
 }
 
 function configureExpoAndLanding(app: express.Application) {
+  // Safely load template — missing file won't crash the server
+  let landingPageTemplate = "<html><body><h1>APP_NAME_PLACEHOLDER</h1></body></html>";
   const templatePath = path.resolve(
     process.cwd(),
     "server",
     "templates",
     "landing-page.html"
   );
-  const landingPageTemplate = fs.readFileSync(templatePath, "utf-8");
+  if (fs.existsSync(templatePath)) {
+    landingPageTemplate = fs.readFileSync(templatePath, "utf-8");
+    log("Landing page template loaded from disk");
+  } else {
+    console.warn(
+      `Warning: Landing page template not found at ${templatePath}, using fallback`
+    );
+  }
+
   const appName = getAppName();
   log("Serving static Expo files with dynamic manifest routing");
+
   app.use((req: Request, res: Response, next: NextFunction) => {
     try {
       if (req.path.startsWith("/api")) return next();
@@ -200,6 +203,7 @@ function configureExpoAndLanding(app: express.Application) {
       res.status(500).send("Internal Server Error");
     }
   });
+
   app.use("/assets", express.static(path.resolve(process.cwd(), "assets")));
   app.use(express.static(path.resolve(process.cwd(), "static-build")));
   log("Expo routing: Checking expo-platform header on / and /manifest");
@@ -226,8 +230,12 @@ function setupErrorHandler(app: express.Application) {
   setupBodyParsing(app);
   setupRequestLogging(app);
 
-  // Health check routes BEFORE registerRoutes
+  // Health check routes — BEFORE registerRoutes and BEFORE any middleware
+  // that might throw. Both /health and /api/health are supported.
   app.get("/health", (_req: Request, res: Response) => {
+    res.status(200).json({ status: "ok", timestamp: new Date().toISOString() });
+  });
+  app.get("/api/health", (_req: Request, res: Response) => {
     res.status(200).json({ status: "ok", timestamp: new Date().toISOString() });
   });
   app.get("/ping", (_req: Request, res: Response) => {
@@ -235,13 +243,15 @@ function setupErrorHandler(app: express.Application) {
   });
 
   configureExpoAndLanding(app);
+
   let server: any;
   try {
     server = await registerRoutes(app);
   } catch (err) {
     console.error("Error registering routes:", err);
-    process.exit(1); // Exit so Railway restarts the container
+    process.exit(1);
   }
+
   setupErrorHandler(app);
 
   const port = parseInt(process.env.PORT || "8080", 10);
