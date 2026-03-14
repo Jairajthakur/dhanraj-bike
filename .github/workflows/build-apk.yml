@@ -51,29 +51,25 @@ jobs:
           EXPO_PUBLIC_API_URL: https://dhanraj-bike-production.up.railway.app
           NODE_ENV: production
 
-      - name: Bundle JS manually
-        run: |
-          mkdir -p android/app/src/main/assets
-          npx react-native bundle \
-            --platform android \
-            --dev false \
-            --entry-file node_modules/expo-router/entry.js \
-            --bundle-output android/app/src/main/assets/index.android.bundle \
-            --assets-dest android/app/src/main/res
-        env:
-          EXPO_PUBLIC_API_URL: https://dhanraj-bike-production.up.railway.app
-          NODE_ENV: production
-
       - name: Build Release APK
         run: |
           cd android
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon \
             -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=1g" \
-            -Dkotlin.daemon.jvm.options="-Xmx2g -XX:MaxMetaspaceSize=512m"
+            -Dkotlin.daemon.jvm.options="-Xmx2g -XX:MaxMetaspaceSize=512m" \
+            2>&1 | tee build.log
+          exit ${PIPESTATUS[0]}
         env:
           EXPO_PUBLIC_API_URL: https://dhanraj-bike-production.up.railway.app
           NODE_ENV: production
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: android/build.log
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
