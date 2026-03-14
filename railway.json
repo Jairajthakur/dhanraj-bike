@@ -4,7 +4,7 @@
     "buildCommand": "npm install --legacy-peer-deps && npx esbuild server/index.ts --platform=node --packages=external --bundle --format=cjs --outdir=server_dist && mkdir -p server_dist/templates && cp -r server/templates/* server_dist/templates/ 2>/dev/null || true"
   },
   "deploy": {
-    "startCommand": "npm run db:push && node server_dist/index.js",
+    "startCommand": "node server_dist/index.js",
     "healthcheckPath": "/api/health",
     "healthcheckTimeout": 60,
     "restartPolicyType": "ON_FAILURE",
