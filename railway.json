@@ -4,6 +4,6 @@
     "buildCommand": "npm install --legacy-peer-deps && npm run server:build"
   },
   "deploy": {
-    "startCommand": "npm run db:push && npm run server:prod"
+    "startCommand": "npm run db:push && node server_dist/index.js 2>&1 || true"
   }
 }
