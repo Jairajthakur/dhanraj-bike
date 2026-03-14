@@ -2,18 +2,21 @@ import { ExpoConfig, ConfigContext } from "expo/config";
 import baseConfig from "./app.json";
 
 export default ({ config }: ConfigContext): ExpoConfig => {
-  const isProduction = process.env.NODE_ENV === "production" || !process.env.REPLIT_DEV_DOMAIN;
   const replitDomain = process.env.REPLIT_DEV_DOMAIN;
+
+  const apiUrl = process.env.EXPO_PUBLIC_API_URL || 
+    (replitDomain ? `https://${replitDomain}` : "https://dhanraj-bike-production.up.railway.app");
 
   const origin = replitDomain
     ? `https://${replitDomain}:3001`
-    : "https://dhanraj-production.up.railway.app";
+    : "https://dhanraj-bike-production.up.railway.app";
 
   return {
     ...baseConfig.expo,
     owner: "jairaj123",
     extra: {
       ...baseConfig.expo.extra,
+      apiUrl,
       router: {
         origin,
         headOrigin: origin,
