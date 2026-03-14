@@ -1,10 +1,12 @@
 {
   "build": {
     "builder": "NIXPACKS",
-    "buildCommand": "npm install --legacy-peer-deps && npm run server:build"
+    "buildCommand": "npm install --legacy-peer-deps && npx esbuild server/index.ts --platform=node --packages=external --bundle --format=cjs --outdir=server_dist && cp -r server/templates server_dist/templates 2>/dev/null || true"
   },
   "deploy": {
-    "startCommand": "npm run db:push && npm run server:prod",
+    "startCommand": "npm run db:push && node server_dist/index.js",
+    "healthcheckPath": "/api/health",
+    "healthcheckTimeout": 30,
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 3
   }
