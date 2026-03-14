@@ -1,24 +1,17 @@
 {
   "cli": {
-    "version": ">= 12.0.0",
+    "version": ">= 5.0.0",
     "appVersionSource": "local"
   },
   "build": {
-    "preview": {
-      "distribution": "internal",
+    "production": {
       "android": {
         "buildType": "apk"
       },
+      "resourceClass": "medium",
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://dhanraj-production.up.railway.app"
-      }
-    },
-    "production": {
-      "android": {
-        "buildType": "app-bundle"
-      },
-      "env": {
-        "EXPO_PUBLIC_API_URL": "https://dhanraj-production.up.railway.app"
+        "EXPO_PUBLIC_API_URL": "https://dhanraj-bike-production.up.railway.app",
+        "EAS_BUILD_NO_EXPO_GO_WARNING": "true"
       }
     }
   },
@@ -26,3 +19,9 @@
     "production": {}
   }
 }
+```
+
+### `.github/workflows/build.yml`
+Change both occurrences of `EXPO_PUBLIC_API_URL` to:
+```
+EXPO_PUBLIC_API_URL: https://dhanraj-bike-production.up.railway.app
