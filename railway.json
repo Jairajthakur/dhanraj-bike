@@ -4,7 +4,7 @@
     "buildCommand": "npm install --legacy-peer-deps && npm run server:build"
   },
   "deploy": {
-    "startCommand": "node start.js",
+    "startCommand": "npm run db:push && npm run server:prod",
     "healthcheckPath": "/health",
     "healthcheckTimeout": 300
   }
