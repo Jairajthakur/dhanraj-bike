@@ -1,5 +1,7 @@
 const { Pool } = require("pg");
 const { spawn } = require("child_process");
+const fs = require("fs");
+const path = require("path");
 
 async function runMigrations() {
   const url = process.env.DATABASE_URL;
@@ -101,13 +103,31 @@ async function runMigrations() {
 }
 
 async function main() {
+  // Check if built server file exists
+  const serverFile = path.resolve(__dirname, "server_dist/index.mjs");
+  if (!fs.existsSync(serverFile)) {
+    console.error("ERROR: server_dist/index.mjs not found!");
+    console.error("Make sure the build step ran: npm run server:build");
+    process.exit(1);
+  }
+
   await runMigrations();
   console.log("Starting server...");
+
   const child = spawn("node", ["server_dist/index.mjs"], {
     stdio: "inherit",
     env: process.env,
   });
-  child.on("exit", (code) => process.exit(code ?? 0));
+
+  child.on("error", (err) => {
+    console.error("Failed to start server process:", err.message);
+    process.exit(1);
+  });
+
+  child.on("exit", (code) => {
+    console.log(`Server exited with code ${code}`);
+    process.exit(code ?? 0);
+  });
 }
 
 main().catch((err) => {
