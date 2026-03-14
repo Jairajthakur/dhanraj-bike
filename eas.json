@@ -19,9 +19,4 @@
     "production": {}
   }
 }
-```
 
-### `.github/workflows/build.yml`
-Change both occurrences of `EXPO_PUBLIC_API_URL` to:
-```
-EXPO_PUBLIC_API_URL: https://dhanraj-bike-production.up.railway.app
