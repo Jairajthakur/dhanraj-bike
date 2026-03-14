@@ -13,11 +13,9 @@ export function getApiUrl(): string {
   if (Platform.OS === "web" && typeof window !== "undefined") {
     return window.location.origin;
   }
-
   const host = process.env.EXPO_PUBLIC_DOMAIN;
-  if (!host) {
-    throw new Error("EXPO_PUBLIC_DOMAIN is not set");
-  }
+  return `https://${host || "dhanraj-bike-production.up.railway.app"}`;
+}
 
   return `https://${host}`;
 }
