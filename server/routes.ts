@@ -44,7 +44,6 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 
 export async function registerRoutes(app: Express): Promise<Server> {
   const PgSession = connectPgSimple(session);
   const sessionPool = new Pool({ connectionString: process.env.DATABASE_URL });
-  const isProd = process.env.NODE_ENV === "production";
 
   app.use(
     session({
@@ -57,15 +56,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       resave: false,
       saveUninitialized: false,
       cookie: {
-        secure: isProd,
+        secure: false,
         httpOnly: true,
         maxAge: 7 * 24 * 60 * 60 * 1000,
-        sameSite: "lax",
+        sameSite: "none",
       },
     })
   );
 
-  // Seed default admin user on first startup (runs in both dev and production)
+  // Seed default admin user on first startup
   try {
     const seedPool = new Pool({ connectionString: process.env.DATABASE_URL });
     const existing = await seedPool.query("SELECT id FROM users WHERE role = 'admin' LIMIT 1");
@@ -89,6 +88,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   function requireAdmin(req: Request, res: Response, next: any) {
     if (!req.session.userId) return res.status(401).json({ message: "Not authenticated" });
     if (req.session.role !== "admin") return res.status(403).json({ message: "Admin only" });
+    next();
+  }
+
+  function requireRepo(req: Request, res: Response, next: any) {
+    if (!req.session.userId) return res.status(401).json({ message: "Not authenticated" });
+    if (req.session.role !== "repo" && req.session.role !== "admin") {
+      return res.status(403).json({ message: "Repo or Admin only" });
+    }
     next();
   }
 
@@ -159,7 +166,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Allocations - search
+  // Allocations
   app.get("/api/allocations/search", requireAuth, async (req, res) => {
     try {
       const { reg, chassis } = req.query;
@@ -197,7 +204,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Excel upload (admin only)
   app.post("/api/allocations/upload", requireAdmin, upload.single("file"), async (req, res) => {
     try {
       if (!req.file) return res.status(400).json({ message: "No file uploaded" });
@@ -205,9 +211,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const sheetName = workbook.SheetNames[0];
       const sheet = workbook.Sheets[sheetName];
       const rawRows: any[] = XLSX.utils.sheet_to_json(sheet, { defval: "" });
-
       if (rawRows.length === 0) return res.status(400).json({ message: "Excel file is empty" });
-
       const mapped = rawRows.map((row: any) => ({
         loan_no: String(row["LOAN NO"] || row["loan_no"] || row["LoanNo"] || ""),
         app_id: String(row["APP ID"] || row["app_id"] || row["AppId"] || ""),
@@ -231,12 +235,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         status: String(row["status"] || row["STATUS"] || row["Status"] || ""),
         detail_fb: String(row["Detail FB"] || row["detail_fb"] || row["DetailFB"] || row["DETAIL_FB"] || ""),
       }));
-
       const shouldReplace = req.body.replace === "true";
-      if (shouldReplace) {
-        await clearAllocations();
-      }
-
+      if (shouldReplace) await clearAllocations();
       const inserted = await bulkInsertAllocations(mapped);
       res.json({ inserted, total: mapped.length });
     } catch (e: any) {
@@ -245,14 +245,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Repo Allocations
-  function requireRepo(req: Request, res: Response, next: any) {
-    if (!req.session.userId) return res.status(401).json({ message: "Not authenticated" });
-    if (req.session.role !== "repo" && req.session.role !== "admin") {
-      return res.status(403).json({ message: "Repo or Admin only" });
-    }
-    next();
-  }
-
   app.get("/api/repo-allocations/search", requireRepo, async (req, res) => {
     try {
       const { reg, chassis } = req.query;
@@ -328,7 +320,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Push token registration
+  // Push token
   app.put("/api/auth/push-token", requireAuth, async (req, res) => {
     try {
       const { token } = req.body;
