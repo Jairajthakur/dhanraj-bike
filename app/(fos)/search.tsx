@@ -66,43 +66,49 @@ export default function FosSearchScreen() {
     };
   }, [query, searchType]);
 
-  async function handleSearch(q: string) {
-    if (q.length < 3) return;
+async function handleSearch(q: string) {
+  if (q.length < 3) return;
 
-    // Cancel previous in-flight request
-    abortRef.current?.abort();
-    abortRef.current = new AbortController();
+  abortRef.current?.abort();
+  abortRef.current = new AbortController();
 
-    setIsSearching(true);
-    setHasSearched(true);
+  setIsSearching(true);
+  setHasSearched(true);
 
-    try {
-      const baseUrl = getApiUrl();
-      const param = searchType === "chassis"
-        ? `chassis=${encodeURIComponent(q)}`
-        : `reg=${encodeURIComponent(q)}`;
-      const url = new URL(`/api/allocations/search?${param}`, baseUrl);
-      const res = await fetch(url.toString(), {
-        credentials: "include",
-        signal: abortRef.current.signal,
-      });
-      const data = await res.json();
-      const found = Array.isArray(data) ? data : [];
-      setResults(found);
+  try {
+    const baseUrl = getApiUrl();
+    const param = searchType === "chassis"
+      ? `chassis=${encodeURIComponent(q)}`
+      : `reg=${encodeURIComponent(q)}`;
+    const url = new URL(`/api/allocations/search?${param}`, baseUrl);
+    const res = await fetch(url.toString(), {
+      credentials: "include",
+      signal: abortRef.current.signal,
+    });
+    const data = await res.json();
+    const found = Array.isArray(data) ? data : [];
+    setResults(found);
 
-      if (found.length > 0) {
-        Haptics.selectionAsync();
-      }
-    } catch (e: any) {
-      // Ignore abort errors — a new search is already in flight
-      if (e?.name !== "AbortError") {
-        setResults([]);
-      }
-    } finally {
-      setIsSearching(false);
+    if (found.length > 0) {
+      Haptics.selectionAsync();
+    } else {
+      // Nothing found — wipe input instantly so user can try again
+      setQuery("");
+      setResults([]);
+      setHasSearched(false);
+      inputRef.current?.focus();
     }
+  } catch (e: any) {
+    if (e?.name !== "AbortError") {
+      setResults([]);
+      setQuery("");
+      setHasSearched(false);
+      inputRef.current?.focus();
+    }
+  } finally {
+    setIsSearching(false);
   }
-
+}
   function clearSearch() {
     abortRef.current?.abort();
     setQuery("");
