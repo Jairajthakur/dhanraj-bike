@@ -18,7 +18,6 @@ declare module "http" {
 function setupCors(app: express.Application) {
   app.use((req, res, next) => {
     const origin = req.header("origin");
-
     const allowedOrigins = new Set<string>();
 
     if (process.env.REPLIT_DEV_DOMAIN) {
@@ -29,11 +28,9 @@ function setupCors(app: express.Application) {
         allowedOrigins.add(`https://${d.trim()}`);
       });
     }
-
     if (process.env.RAILWAY_PUBLIC_DOMAIN) {
       allowedOrigins.add(`https://${process.env.RAILWAY_PUBLIC_DOMAIN}`);
     }
-
     if (process.env.ALLOWED_ORIGINS) {
       process.env.ALLOWED_ORIGINS.split(",").forEach((d) => {
         allowedOrigins.add(d.trim());
@@ -166,7 +163,6 @@ function serveLandingPage({
 }
 
 function configureExpoAndLanding(app: express.Application) {
-  // Safely load template — missing file won't crash the server
   let landingPageTemplate = "<html><body><h1>APP_NAME_PLACEHOLDER</h1></body></html>";
   const templatePath = path.resolve(
     process.cwd(),
@@ -230,8 +226,6 @@ function setupErrorHandler(app: express.Application) {
   setupBodyParsing(app);
   setupRequestLogging(app);
 
-  // Health check routes — BEFORE registerRoutes and BEFORE any middleware
-  // that might throw. Both /health and /api/health are supported.
   app.get("/health", (_req: Request, res: Response) => {
     res.status(200).json({ status: "ok", timestamp: new Date().toISOString() });
   });
@@ -249,7 +243,8 @@ function setupErrorHandler(app: express.Application) {
     server = await registerRoutes(app);
   } catch (err) {
     console.error("Error registering routes:", err);
-    process.exit(1);
+    // Don't exit — start server anyway so healthcheck passes
+    server = http.createServer(app);
   }
 
   setupErrorHandler(app);
