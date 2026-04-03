@@ -91,6 +91,7 @@ async function handleSearch(q: string) {
 
     if (found.length > 0) {
       Haptics.selectionAsync();
+      Keyboard.dismiss();
     } else {
       // Only wipe if the query that came back empty is still what the user typed
       setQuery((currentQuery) => {
