@@ -92,18 +92,28 @@ async function handleSearch(q: string) {
     if (found.length > 0) {
       Haptics.selectionAsync();
     } else {
-      // Nothing found — wipe input instantly so user can try again
-      setQuery("");
+      // Only wipe if the query that came back empty is still what the user typed
+      setQuery((currentQuery) => {
+        if (currentQuery === q) {
+          inputRef.current?.focus();
+          return "";
+        }
+        return currentQuery;
+      });
       setResults([]);
       setHasSearched(false);
-      inputRef.current?.focus();
     }
   } catch (e: any) {
     if (e?.name !== "AbortError") {
+      setQuery((currentQuery) => {
+        if (currentQuery === q) {
+          inputRef.current?.focus();
+          return "";
+        }
+        return currentQuery;
+      });
       setResults([]);
-      setQuery("");
       setHasSearched(false);
-      inputRef.current?.focus();
     }
   } finally {
     setIsSearching(false);
