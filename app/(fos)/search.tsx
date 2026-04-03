@@ -102,23 +102,6 @@ async function handleSearch(q: string) {
     setIsSearching(false);
   }
 }
-}
-  } catch (e: any) {
-    if (e?.name !== "AbortError") {
-      setQuery((currentQuery) => {
-        if (currentQuery === q) {
-          inputRef.current?.focus();
-          return "";
-        }
-        return currentQuery;
-      });
-      setResults([]);
-      setHasSearched(false);
-    }
-  } finally {
-    setIsSearching(false);
-  }
-}
   function clearSearch() {
     abortRef.current?.abort();
     setQuery("");
