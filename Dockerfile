@@ -1,22 +1,16 @@
 FROM node:20-alpine
-
 WORKDIR /app
 
-# Copy package files
 COPY package*.json ./
 COPY patches/ ./patches/
-
-# Install all dependencies (need devDeps for esbuild)
 RUN npm ci
 
-# Copy source files
 COPY server/ ./server/
 COPY shared/ ./shared/
 COPY migrations/ ./migrations/
 COPY tsconfig.json ./
 COPY drizzle.config.ts ./
 
-# Build server → outputs server_dist/index.js
 RUN npx esbuild server/index.ts \
     --platform=node \
     --packages=external \
@@ -24,6 +18,10 @@ RUN npx esbuild server/index.ts \
     --format=esm \
     --outdir=server_dist
 
+# Copy templates
+RUN mkdir -p server_dist/templates && \
+    cp -r server/templates/* server_dist/templates/ 2>/dev/null || true
+
 EXPOSE 5000
 
-CMD ["node", "server_dist/index.js"]
+CMD ["sh", "-c", "npm run db:push && node server_dist/index.js"]
