@@ -186,7 +186,7 @@ async function handleSearch(q: string) {
             ref={inputRef}
             style={styles.searchInput}
             value={query}
-            onChangeText={setQuery}
+            onChangeText={(text) => setQuery(text.toUpperCase())}
             placeholder={searchType === "chassis" ? "Enter chassis number..." : "Enter registration number..."}
             placeholderTextColor={Colors.textMuted}
             returnKeyType="search"
@@ -194,8 +194,9 @@ async function handleSearch(q: string) {
               if (debounceRef.current) clearTimeout(debounceRef.current);
               handleSearch(query.trim());
             }}
-            autoCapitalize="characters"
+            autoCapitalize="none"
             autoCorrect={false}
+            keyboardType="numeric"
           />
           {query.length > 0 && (
             <Pressable onPress={clearSearch} style={styles.clearBtn}>
