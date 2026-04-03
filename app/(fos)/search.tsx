@@ -102,6 +102,7 @@ async function handleSearch(q: string) {
     setIsSearching(false);
   }
 }
+}
   } catch (e: any) {
     if (e?.name !== "AbortError") {
       setQuery((currentQuery) => {
