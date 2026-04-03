@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   View,
   Text,
@@ -40,13 +40,32 @@ export default function FosSearchScreen() {
   const [isSearching, setIsSearching] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const inputRef = useRef<TextInput>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
-  async function handleSearch() {
-    const q = query.trim();
-    if (q.length < 2) return;
+  // Auto-search whenever query changes and has 4+ characters
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+
+    if (query.trim().length >= 4) {
+      debounceRef.current = setTimeout(() => {
+        handleSearch(query.trim());
+      }, 400); // 400ms debounce so it doesn't fire on every keystroke
+    } else {
+      // Reset state if query is less than 4 chars
+      setResults([]);
+      setHasSearched(false);
+    }
+
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [query, searchType]);
+
+  async function handleSearch(q: string) {
+    if (q.length < 4) return;
     Keyboard.dismiss();
     setIsSearching(true);
     setHasSearched(true);
@@ -58,10 +77,28 @@ export default function FosSearchScreen() {
       const url = new URL(`/api/allocations/search?${param}`, baseUrl);
       const res = await fetch(url.toString(), { credentials: "include" });
       const data = await res.json();
-      setResults(Array.isArray(data) ? data : []);
-      Haptics.selectionAsync();
+      const found = Array.isArray(data) ? data : [];
+      setResults(found);
+
+      if (found.length > 0) {
+        Haptics.selectionAsync();
+      } else {
+        // Auto-clear input after short delay so user sees the "not found" flash
+        setTimeout(() => {
+          setQuery("");
+          setResults([]);
+          setHasSearched(false);
+          inputRef.current?.focus();
+        }, 800);
+      }
     } catch {
       setResults([]);
+      setTimeout(() => {
+        setQuery("");
+        setResults([]);
+        setHasSearched(false);
+        inputRef.current?.focus();
+      }, 800);
     } finally {
       setIsSearching(false);
     }
@@ -120,7 +157,12 @@ export default function FosSearchScreen() {
           </Pressable>
         </View>
         <View style={styles.searchBox}>
-          <Ionicons name="search" size={20} color={Colors.primary} style={styles.searchIcon} />
+          <Ionicons
+            name={isSearching ? "hourglass-outline" : "search"}
+            size={20}
+            color={Colors.primary}
+            style={styles.searchIcon}
+          />
           <TextInput
             ref={inputRef}
             style={styles.searchInput}
@@ -129,7 +171,7 @@ export default function FosSearchScreen() {
             placeholder={searchType === "chassis" ? "Enter chassis number..." : "Enter registration number..."}
             placeholderTextColor={Colors.textMuted}
             returnKeyType="search"
-            onSubmitEditing={handleSearch}
+            onSubmitEditing={() => handleSearch(query.trim())}
             autoCapitalize="characters"
             autoCorrect={false}
           />
@@ -139,17 +181,7 @@ export default function FosSearchScreen() {
             </Pressable>
           )}
         </View>
-        <Pressable
-          style={({ pressed }) => [styles.searchBtn, pressed && { opacity: 0.85 }, (query.trim().length < 2 || isSearching) && { opacity: 0.5 }]}
-          onPress={handleSearch}
-          disabled={query.trim().length < 2 || isSearching}
-        >
-          {isSearching ? (
-            <ActivityIndicator color={Colors.background} size="small" />
-          ) : (
-            <Text style={styles.searchBtnText}>Search</Text>
-          )}
-        </Pressable>
+        {/* Search button removed — auto-search handles it */}
       </View>
 
       {isSearching ? (
@@ -297,13 +329,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   clearBtn: { padding: 4 },
-  searchBtn: {
-    backgroundColor: Colors.primary,
-    borderRadius: 14,
-    paddingVertical: 15,
-    alignItems: "center",
-  },
-  searchBtnText: { fontFamily: "Inter_700Bold", fontSize: 16, color: Colors.background },
   loadingContainer: {
     flex: 1,
     alignItems: "center",
