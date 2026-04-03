@@ -36,15 +36,6 @@ jobs:
       - name: Install dependencies
         run: npm install --legacy-peer-deps
 
-      - name: Install expo-cli
-        run: npm install @expo/cli --legacy-peer-deps
-
-      - name: Setup EAS
-        uses: expo/expo-github-action@v8
-        with:
-          eas-version: latest
-          token: ${{ secrets.EXPO_TOKEN }}
-
       - name: Expo prebuild
         run: npx expo prebuild --platform android --clean
         env:
@@ -70,6 +61,7 @@ jobs:
         with:
           name: build-log
           path: android/build.log
+          if-no-files-found: warn
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
