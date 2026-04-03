@@ -92,18 +92,16 @@ async function handleSearch(q: string) {
     if (found.length > 0) {
       Haptics.selectionAsync();
       Keyboard.dismiss();
-    } else {
-      // Only wipe if the query that came back empty is still what the user typed
-      setQuery((currentQuery) => {
-        if (currentQuery === q) {
-          inputRef.current?.focus();
-          return "";
-        }
-        return currentQuery;
-      });
+    }
+  } catch (e: any) {
+    if (e?.name !== "AbortError") {
       setResults([]);
       setHasSearched(false);
     }
+  } finally {
+    setIsSearching(false);
+  }
+}
   } catch (e: any) {
     if (e?.name !== "AbortError") {
       setQuery((currentQuery) => {
