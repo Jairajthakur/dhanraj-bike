@@ -41,22 +41,24 @@ export default function FosSearchScreen() {
   const [hasSearched, setHasSearched] = useState(false);
   const inputRef = useRef<TextInput>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
-  // Auto-search whenever query changes and has 4+ characters
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
 
-    if (query.trim().length >= 4) {
+    if (query.trim().length >= 3) {
       debounceRef.current = setTimeout(() => {
         handleSearch(query.trim());
-      }, 400); // 400ms debounce so it doesn't fire on every keystroke
+      }, 150);
     } else {
-      // Reset state if query is less than 4 chars
+      // Cancel any in-flight request
+      abortRef.current?.abort();
       setResults([]);
       setHasSearched(false);
+      setIsSearching(false);
     }
 
     return () => {
@@ -65,57 +67,58 @@ export default function FosSearchScreen() {
   }, [query, searchType]);
 
   async function handleSearch(q: string) {
-    if (q.length < 4) return;
-    Keyboard.dismiss();
+    if (q.length < 3) return;
+
+    // Cancel previous in-flight request
+    abortRef.current?.abort();
+    abortRef.current = new AbortController();
+
     setIsSearching(true);
     setHasSearched(true);
+
     try {
       const baseUrl = getApiUrl();
       const param = searchType === "chassis"
         ? `chassis=${encodeURIComponent(q)}`
         : `reg=${encodeURIComponent(q)}`;
       const url = new URL(`/api/allocations/search?${param}`, baseUrl);
-      const res = await fetch(url.toString(), { credentials: "include" });
+      const res = await fetch(url.toString(), {
+        credentials: "include",
+        signal: abortRef.current.signal,
+      });
       const data = await res.json();
       const found = Array.isArray(data) ? data : [];
       setResults(found);
 
       if (found.length > 0) {
         Haptics.selectionAsync();
-      } else {
-        // Auto-clear input after short delay so user sees the "not found" flash
-        setTimeout(() => {
-          setQuery("");
-          setResults([]);
-          setHasSearched(false);
-          inputRef.current?.focus();
-        }, 800);
       }
-    } catch {
-      setResults([]);
-      setTimeout(() => {
-        setQuery("");
+    } catch (e: any) {
+      // Ignore abort errors — a new search is already in flight
+      if (e?.name !== "AbortError") {
         setResults([]);
-        setHasSearched(false);
-        inputRef.current?.focus();
-      }, 800);
+      }
     } finally {
       setIsSearching(false);
     }
   }
 
   function clearSearch() {
+    abortRef.current?.abort();
     setQuery("");
     setResults([]);
     setHasSearched(false);
+    setIsSearching(false);
     inputRef.current?.focus();
   }
 
   function switchType(type: "reg" | "chassis") {
+    abortRef.current?.abort();
     setSearchType(type);
     setQuery("");
     setResults([]);
     setHasSearched(false);
+    setIsSearching(false);
     setTimeout(() => inputRef.current?.focus(), 50);
   }
 
@@ -171,7 +174,10 @@ export default function FosSearchScreen() {
             placeholder={searchType === "chassis" ? "Enter chassis number..." : "Enter registration number..."}
             placeholderTextColor={Colors.textMuted}
             returnKeyType="search"
-            onSubmitEditing={() => handleSearch(query.trim())}
+            onSubmitEditing={() => {
+              if (debounceRef.current) clearTimeout(debounceRef.current);
+              handleSearch(query.trim());
+            }}
             autoCapitalize="characters"
             autoCorrect={false}
           />
@@ -181,7 +187,6 @@ export default function FosSearchScreen() {
             </Pressable>
           )}
         </View>
-        {/* Search button removed — auto-search handles it */}
       </View>
 
       {isSearching ? (
