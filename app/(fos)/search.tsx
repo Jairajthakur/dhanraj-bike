@@ -87,12 +87,21 @@ async function handleSearch(q: string) {
     });
     const data = await res.json();
     const found = Array.isArray(data) ? data : [];
-    setResults(found);
+setResults(found);
 
-    if (found.length > 0) {
-      Haptics.selectionAsync();
-      Keyboard.dismiss();
-    }
+if (found.length > 0) {
+  Haptics.selectionAsync();
+  Keyboard.dismiss();
+} else {
+  // Auto-clear so FOS can type the next number immediately
+  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+  setTimeout(() => {
+    setQuery("");
+    setResults([]);
+    setHasSearched(false);
+    inputRef.current?.focus();
+  }, 500); // Shows "No Data Found" briefly, then clears
+}
   } catch (e: any) {
     if (e?.name !== "AbortError") {
       setResults([]);
