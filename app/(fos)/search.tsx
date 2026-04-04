@@ -54,7 +54,6 @@ export default function FosSearchScreen() {
         handleSearch(query.trim());
       }, 150);
     } else {
-      // Cancel any in-flight request
       abortRef.current?.abort();
       setResults([]);
       setHasSearched(false);
@@ -66,51 +65,58 @@ export default function FosSearchScreen() {
     };
   }, [query, searchType]);
 
-async function handleSearch(q: string) {
-  if (q.length < 3) return;
+  async function handleSearch(q: string) {
+    if (q.length < 3) return;
 
-  abortRef.current?.abort();
-  abortRef.current = new AbortController();
+    abortRef.current?.abort();
+    abortRef.current = new AbortController();
 
-  setIsSearching(true);
-  setHasSearched(true);
+    setIsSearching(true);
+    setHasSearched(true);
 
-  try {
-    const baseUrl = getApiUrl();
-    const param = searchType === "chassis"
-      ? `chassis=${encodeURIComponent(q)}`
-      : `reg=${encodeURIComponent(q)}`;
-    const url = new URL(`/api/allocations/search?${param}`, baseUrl);
-    const res = await fetch(url.toString(), {
-      credentials: "include",
-      signal: abortRef.current.signal,
-    });
-    const data = await res.json();
-    const found = Array.isArray(data) ? data : [];
-setResults(found);
+    try {
+      const baseUrl = getApiUrl();
+      const param = searchType === "chassis"
+        ? `chassis=${encodeURIComponent(q)}`
+        : `reg=${encodeURIComponent(q)}`;
+      const url = new URL(`/api/allocations/search?${param}`, baseUrl);
+      const res = await fetch(url.toString(), {
+        credentials: "include",
+        signal: abortRef.current.signal,
+      });
+      const data = await res.json();
+      const found = Array.isArray(data) ? data : [];
+      setResults(found);
 
-if (found.length > 0) {
-  Haptics.selectionAsync();
-  Keyboard.dismiss();
-} else {
-  // Auto-clear so FOS can type the next number immediately
-  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-  setTimeout(() => {
-    setQuery("");
-    setResults([]);
-    setHasSearched(false);
-    inputRef.current?.focus();
-  }, 500); // Shows "No Data Found" briefly, then clears
-}
-  } catch (e: any) {
-    if (e?.name !== "AbortError") {
-      setResults([]);
-      setHasSearched(false);
+      if (found.length === 1) {
+        // Single result — go straight to details page
+        Haptics.selectionAsync();
+        Keyboard.dismiss();
+        router.push({ pathname: "/allocation/[id]", params: { id: found[0].id.toString() } });
+      } else if (found.length > 1) {
+        // Multiple results — show the list
+        Haptics.selectionAsync();
+        Keyboard.dismiss();
+      } else {
+        // Not found — wipe input fast and refocus
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        setTimeout(() => {
+          setQuery("");
+          setResults([]);
+          setHasSearched(false);
+          inputRef.current?.focus();
+        }, 500);
+      }
+    } catch (e: any) {
+      if (e?.name !== "AbortError") {
+        setResults([]);
+        setHasSearched(false);
+      }
+    } finally {
+      setIsSearching(false);
     }
-  } finally {
-    setIsSearching(false);
   }
-}
+
   function clearSearch() {
     abortRef.current?.abort();
     setQuery("");
@@ -254,7 +260,7 @@ if (found.length > 0) {
             )}
           />
         )
-      ) : (
+      ) : query.length === 0 ? (
         <View style={styles.hintContainer}>
           <View style={styles.hintIcon}>
             <Ionicons name="bicycle-outline" size={40} color={Colors.primary} />
@@ -266,7 +272,7 @@ if (found.length > 0) {
               : "Enter a vehicle registration number to find customer details"}
           </Text>
         </View>
-      )}
+      ) : null}
     </View>
   );
 }
