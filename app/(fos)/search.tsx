@@ -105,7 +105,7 @@ export default function FosSearchScreen() {
           setResults([]);
           setHasSearched(false);
           inputRef.current?.focus();
-        }, 500);
+        }, 300);
       }
     } catch (e: any) {
       if (e?.name !== "AbortError") {
