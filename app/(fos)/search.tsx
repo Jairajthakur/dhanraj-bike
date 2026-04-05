@@ -49,29 +49,30 @@ export default function FosSearchScreen() {
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
   useEffect(() => {
+  if (debounceRef.current) clearTimeout(debounceRef.current);
+
+  if (skipEffectRef.current) {
+    skipEffectRef.current = false;
+    return;
+  }
+
+  const trimmed = query.trim();
+
+  if (trimmed.length >= 3) {
+    debounceRef.current = setTimeout(() => {
+      handleSearch(trimmed);
+    }, 50);
+  } else if (trimmed.length === 0) {
+    abortRef.current?.abort();
+    setResults([]);
+    setHasSearched(false);
+    setIsSearching(false);
+  }
+
+  return () => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-
-    if (skipEffectRef.current) {
-      skipEffectRef.current = false;
-      return;
-    }
-
-    if (query.trim().length >= 3) {
-      debounceRef.current = setTimeout(() => {
-        handleSearch(query.trim());
-      }, 50);
-    } else {
-      abortRef.current?.abort();
-      setResults([]);
-      setHasSearched(false);
-      setIsSearching(false);
-    }
-
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
-  }, [query, searchType]);
-
+  };
+}, [query, searchType]);
   async function handleSearch(q: string) {
     if (q.length < 3) return;
 
@@ -198,7 +199,7 @@ export default function FosSearchScreen() {
             }}
             autoCapitalize="none"
             autoCorrect={false}
-            keyboardType="numeric"
+            keyboardType="default"
           />
           {query.length > 0 && (
             <Pressable onPress={clearSearch} style={styles.clearBtn}>
