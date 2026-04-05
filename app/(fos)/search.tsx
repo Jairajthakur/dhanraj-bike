@@ -42,12 +42,19 @@ export default function FosSearchScreen() {
   const inputRef = useRef<TextInput>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  // Prevents useEffect from clearing results when query is wiped after a successful find
+  const skipEffectRef = useRef(false);
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
+
+    if (skipEffectRef.current) {
+      skipEffectRef.current = false;
+      return;
+    }
 
     if (query.trim().length >= 3) {
       debounceRef.current = setTimeout(() => {
@@ -65,54 +72,54 @@ export default function FosSearchScreen() {
     };
   }, [query, searchType]);
 
-async function handleSearch(q: string) {
-  if (q.length < 3) return;
+  async function handleSearch(q: string) {
+    if (q.length < 3) return;
 
-  abortRef.current?.abort();
-  abortRef.current = new AbortController();
+    abortRef.current?.abort();
+    abortRef.current = new AbortController();
 
-  setIsSearching(true);
-  setHasSearched(true);
+    setIsSearching(true);
+    setHasSearched(true);
 
-  try {
-    const baseUrl = getApiUrl();
-    const param = searchType === "chassis"
-      ? `chassis=${encodeURIComponent(q)}`
-      : `reg=${encodeURIComponent(q)}`;
-    const url = new URL(`/api/allocations/search?${param}`, baseUrl);
-    const res = await fetch(url.toString(), {
-      credentials: "include",
-      signal: abortRef.current.signal,
-    });
-    const data = await res.json();
-    const found = Array.isArray(data) ? data : [];
-    setResults(found);
+    try {
+      const baseUrl = getApiUrl();
+      const param = searchType === "chassis"
+        ? `chassis=${encodeURIComponent(q)}`
+        : `reg=${encodeURIComponent(q)}`;
+      const url = new URL(`/api/allocations/search?${param}`, baseUrl);
+      const res = await fetch(url.toString(), {
+        credentials: "include",
+        signal: abortRef.current.signal,
+      });
+      const data = await res.json();
+      const found = Array.isArray(data) ? data : [];
+      setResults(found);
 
-    if (found.length === 1) {
-      Haptics.selectionAsync();
-      Keyboard.dismiss();
-      // Don't wipe query — just show the result card, user taps to open
-    } else if (found.length > 1) {
-      Haptics.selectionAsync();
-      Keyboard.dismiss();
-    } else {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      setTimeout(() => {
+      if (found.length >= 1) {
+        // Result(s) found — show card(s), wipe input, keyboard dismiss
+        Haptics.selectionAsync();
+        Keyboard.dismiss();
+        skipEffectRef.current = true; // prevent useEffect clearing results
         setQuery("");
+      } else {
+        // Not found — wipe fast and refocus
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        setTimeout(() => {
+          setQuery("");
+          setResults([]);
+          setHasSearched(false);
+          inputRef.current?.focus();
+        }, 300);
+      }
+    } catch (e: any) {
+      if (e?.name !== "AbortError") {
         setResults([]);
         setHasSearched(false);
-        inputRef.current?.focus();
-      }, 300);
+      }
+    } finally {
+      setIsSearching(false);
     }
-  } catch (e: any) {
-    if (e?.name !== "AbortError") {
-      setResults([]);
-      setHasSearched(false);
-    }
-  } finally {
-    setIsSearching(false);
   }
-}
 
   function clearSearch() {
     abortRef.current?.abort();
@@ -233,6 +240,8 @@ async function handleSearch(q: string) {
                 style={({ pressed }) => [styles.resultCard, pressed && { opacity: 0.7 }]}
                 onPress={() => {
                   Haptics.selectionAsync();
+                  setResults([]);
+                  setHasSearched(false);
                   router.push({ pathname: "/allocation/[id]", params: { id: item.id.toString() } });
                 }}
               >
