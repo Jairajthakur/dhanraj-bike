@@ -27,15 +27,11 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Build Release APK
+      - name: Configure Gradle memory
         run: |
-          cd android
-          chmod +x gradlew
-          ./gradlew assembleRelease --no-daemon \
-            -Dorg.gradle.jvmargs="-Xmx3g -XX:MaxMetaspaceSize=512m" \
-            2>&1 | tee build.log
-          exit ${PIPESTATUS[0]}
-
+          mkdir -p ~/.gradle
+          echo "org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g -XX:+HeapDumpOnOutOfMemoryError" >> ~/.gradle/gradle.properties
+          echo "kotlin.daemon.jvm.options=-Xmx2g -XX:MaxMetaspaceSize=512m" >> ~/.gradle/gradle.properties
 
       - name: Install dependencies
         run: npm install --legacy-peer-deps
