@@ -92,7 +92,6 @@ export default function FosSearchScreen() {
         Haptics.selectionAsync();
         setQuery(""); // wipe input immediately
         inputRef.current?.focus(); // keep keyboard open
-      }
       } else if (found.length > 1) {
         // Multiple results — show the list
         Haptics.selectionAsync();
