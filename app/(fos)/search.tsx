@@ -52,7 +52,7 @@ export default function FosSearchScreen() {
     if (query.trim().length >= 3) {
       debounceRef.current = setTimeout(() => {
         handleSearch(query.trim());
-      }, 150);
+      }, 50);
     } else {
       abortRef.current?.abort();
       setResults([]);
@@ -89,10 +89,10 @@ export default function FosSearchScreen() {
       setResults(found);
 
       if (found.length === 1) {
-        // Single result — go straight to details page
         Haptics.selectionAsync();
-        Keyboard.dismiss();
-        router.push({ pathname: "/allocation/[id]", params: { id: found[0].id.toString() } });
+        setQuery(""); // wipe input immediately
+        inputRef.current?.focus(); // keep keyboard open
+      }
       } else if (found.length > 1) {
         // Multiple results — show the list
         Haptics.selectionAsync();
