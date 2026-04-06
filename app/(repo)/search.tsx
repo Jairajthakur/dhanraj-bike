@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   View,
   Text,
@@ -14,97 +14,189 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import * as Haptics from "expo-haptics";
+import * as Network from "expo-network";
 import { Colors } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
 import { getApiUrl } from "@/lib/query-client";
 import { fetch } from "expo/fetch";
+import {
+  CachedAllocation,
+  saveAllocationsToCache,
+  loadAllocationsFromCache,
+  getCacheMeta,
+  isCacheFresh,
+  searchByReg,
+  searchByChassis,
+  clearCache,
+} from "@/lib/offlineCache";
 
-interface Allocation {
-  id: number;
-  loan_no: string;
-  app_id: string;
-  customer_name: string;
-  registration_no: string;
-  asset_make: string;
-  bkt: string;
-  pos: number;
-  status: string;
-}
-
-export default function RepoSearchScreen() {
+export default function FosSearchScreen() {
   const insets = useSafeAreaInsets();
   const { user, logout } = useAuth();
+
   const [query, setQuery] = useState("");
   const [searchType, setSearchType] = useState<"reg" | "chassis">("reg");
-  const [results, setResults] = useState<Allocation[]>([]);
+  const [results, setResults] = useState<CachedAllocation[]>([]);
   const [isSearching, setIsSearching] = useState(false);
-  const [hasSearched, setHasSearched] = useState(false);
+  const [showResults, setShowResults] = useState<"none" | "found" | "notfound">("none");
+
+  // Offline / cache state
+  const [allAllocations, setAllAllocations] = useState<CachedAllocation[]>([]);
+  const allAllocationsRef = useRef<CachedAllocation[]>([]);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [isOnline, setIsOnline] = useState(true);
+  const [lastSynced, setLastSynced] = useState<string | null>(null);
+  const [cacheCount, setCacheCount] = useState(0);
+
   const inputRef = useRef<TextInput>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
-  async function handleSearch() {
-    const q = query.trim();
-    if (q.length < 2) return;
-    Keyboard.dismiss();
-    setIsSearching(true);
-    setHasSearched(true);
+  // ─── Init: load cache then try to sync ───────────────────────────────────
+  useEffect(() => {
+    initCache();
+  }, []);
+
+  async function initCache() {
+    const cached = await loadAllocationsFromCache();
+    allAllocationsRef.current = cached;
+    setAllAllocations(cached);
+
+    const meta = await getCacheMeta();
+    if (meta) {
+      setCacheCount(meta.count);
+      setLastSynced(formatSyncTime(meta.lastSynced));
+    }
+
+    const net = await Network.getNetworkStateAsync();
+    const online = net.isConnected === true;
+    setIsOnline(online);
+
+    if (online) {
+      const fresh = await isCacheFresh();
+      if (!fresh) {
+        await syncAllocations(true);
+      }
+    }
+  }
+
+  // ─── Sync from server ─────────────────────────────────────────────────────
+  async function syncAllocations(silent = false) {
+    if (!silent) setIsSyncing(true);
     try {
       const baseUrl = getApiUrl();
-      const param = searchType === "chassis"
-        ? `chassis=${encodeURIComponent(q)}`
-        : `reg=${encodeURIComponent(q)}`;
-      const url = new URL(`/api/repo-allocations/search?${param}`, baseUrl);
+      const url = new URL("/api/allocations/all", baseUrl);
       const res = await fetch(url.toString(), { credentials: "include" });
-      const data = await res.json();
-      setResults(Array.isArray(data) ? data : []);
-      Haptics.selectionAsync();
+      if (!res.ok) throw new Error("Sync failed");
+      const data: CachedAllocation[] = await res.json();
+      await saveAllocationsToCache(data);
+      allAllocationsRef.current = data;
+      setAllAllocations(data);
+      setCacheCount(data.length);
+      setLastSynced(formatSyncTime(Date.now()));
+      setIsOnline(true);
     } catch {
-      setResults([]);
+      // don't set offline here, sync may fail for other reasons
     } finally {
+      if (!silent) setIsSyncing(false);
+    }
+  }
+
+  function formatSyncTime(ts: number): string {
+    const d = new Date(ts);
+    const hh = d.getHours().toString().padStart(2, "0");
+    const mm = d.getMinutes().toString().padStart(2, "0");
+    const day = d.getDate().toString().padStart(2, "0");
+    const mon = (d.getMonth() + 1).toString().padStart(2, "0");
+    return `${day}/${mon} ${hh}:${mm}`;
+  }
+
+  // ─── Debounced search from local cache ───────────────────────────────────
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+
+    const trimmed = query.trim();
+
+    if (trimmed.length >= 3) {
+      debounceRef.current = setTimeout(() => doSearch(trimmed), 600);
+    } else if (trimmed.length === 0 && showResults !== "found") {
+      setResults([]);
+      setShowResults("none");
       setIsSearching(false);
     }
+
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [query, searchType]);
+
+  function doSearch(q: string) {
+    if (q.length < 3) return;
+    setIsSearching(true);
+
+    const found =
+      searchType === "chassis"
+        ? searchByChassis(allAllocationsRef.current, q)
+        : searchByReg(allAllocationsRef.current, q);
+
+    if (found.length >= 1) {
+      setResults(found);
+      setShowResults("found");
+      setQuery("");
+      Keyboard.dismiss();
+      inputRef.current?.blur();
+      Haptics.selectionAsync();
+    } else {
+      setResults([]);
+      setShowResults("notfound");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      setQuery("");
+      Keyboard.dismiss();
+      inputRef.current?.blur();
+      setShowResults("none");
+    }
+
+    setIsSearching(false);
   }
 
   function clearSearch() {
     setQuery("");
     setResults([]);
-    setHasSearched(false);
-    inputRef.current?.focus();
+    setShowResults("none");
+    setIsSearching(false);
   }
 
   function switchType(type: "reg" | "chassis") {
     setSearchType(type);
     setQuery("");
     setResults([]);
-    setHasSearched(false);
-    setTimeout(() => inputRef.current?.focus(), 50);
+    setShowResults("none");
+    setIsSearching(false);
   }
 
   return (
     <View style={[styles.container, { paddingTop: topPad }]}>
+      {/* Top bar */}
       <View style={styles.topBar}>
         <View>
           <Text style={styles.welcomeText}>Welcome,</Text>
           <Text style={styles.userName}>{user?.fullName || user?.username}</Text>
         </View>
-        <View style={styles.topBarRight}>
-          <View style={styles.repoBadge}>
-            <Text style={styles.repoBadgeText}>REPO</Text>
-          </View>
-          <Pressable
-            onPress={async () => {
-              await logout();
-              router.replace("/login");
-            }}
-            style={styles.logoutBtn}
-          >
-            <Ionicons name="log-out-outline" size={20} color={Colors.textMuted} />
-          </Pressable>
-        </View>
+        <Pressable
+          onPress={async () => {
+            await clearCache();
+            await logout();
+            router.replace("/login");
+          }}
+          style={styles.logoutBtn}
+        >
+          <Ionicons name="log-out-outline" size={20} color={Colors.textMuted} />
+        </Pressable>
       </View>
 
+      {/* Search section */}
       <View style={styles.searchSection}>
         <View style={styles.toggleRow}>
           <Pressable
@@ -124,100 +216,123 @@ export default function RepoSearchScreen() {
             </Text>
           </Pressable>
         </View>
+
         <View style={styles.searchBox}>
-          <Ionicons name="search" size={20} color={Colors.primary} style={styles.searchIcon} />
+          <Ionicons
+            name={isSearching ? "hourglass-outline" : "search"}
+            size={20}
+            color={Colors.primary}
+            style={styles.searchIcon}
+          />
           <TextInput
             ref={inputRef}
             style={styles.searchInput}
             value={query}
-            onChangeText={setQuery}
-            placeholder={searchType === "chassis" ? "Enter chassis number..." : "Enter registration number..."}
+            onChangeText={(text) => {
+              setQuery(text.toUpperCase());
+            }}
+            placeholder={
+              searchType === "chassis"
+                ? "Enter chassis number..."
+                : "Enter registration number..."
+            }
             placeholderTextColor={Colors.textMuted}
             returnKeyType="search"
-            onSubmitEditing={handleSearch}
-            autoCapitalize="characters"
+            onSubmitEditing={() => {
+              if (debounceRef.current) clearTimeout(debounceRef.current);
+              doSearch(query.trim());
+            }}
+            autoCapitalize="none"
             autoCorrect={false}
+            keyboardType="numeric"
           />
-          {query.length > 0 && (
+          {(query.length > 0 || showResults !== "none") && (
             <Pressable onPress={clearSearch} style={styles.clearBtn}>
               <Ionicons name="close-circle" size={18} color={Colors.textMuted} />
             </Pressable>
           )}
         </View>
-        <Pressable
-          style={({ pressed }) => [
-            styles.searchBtn,
-            pressed && { opacity: 0.85 },
-            (query.trim().length < 2 || isSearching) && { opacity: 0.5 },
-          ]}
-          onPress={handleSearch}
-          disabled={query.trim().length < 2 || isSearching}
-        >
-          {isSearching ? (
-            <ActivityIndicator color={Colors.background} size="small" />
-          ) : (
-            <Text style={styles.searchBtnText}>Search</Text>
-          )}
-        </Pressable>
       </View>
 
-      {isSearching ? (
-        <View style={styles.hintContainer}>
-          <ActivityIndicator size="large" color={Colors.primary} />
-        </View>
-      ) : hasSearched && results.length === 0 ? (
-        <View style={styles.hintContainer}>
-          <View style={styles.hintIcon}>
-            <Ionicons name="search-outline" size={36} color={Colors.primary} />
-          </View>
-          <Text style={styles.hintTitle}>No Results</Text>
-          <Text style={styles.hintSubtitle}>No repo allocations found for "{query}"</Text>
-        </View>
-      ) : !hasSearched ? (
-        <View style={styles.hintContainer}>
-          <View style={styles.hintIcon}>
-            <Ionicons name="car-outline" size={36} color={Colors.primary} />
-          </View>
-          <Text style={styles.hintTitle}>Repo Search</Text>
-          <Text style={styles.hintSubtitle}>
-            {searchType === "chassis"
-              ? "Enter a chassis number to find repo allocation details"
-              : "Enter a vehicle registration number to find repo allocation details"}
+      {/* No cache warning */}
+      {!isOnline && cacheCount === 0 && (
+        <View style={styles.noCacheWarning}>
+          <Ionicons name="cloud-offline-outline" size={18} color={Colors.red} />
+          <Text style={styles.noCacheText}>
+            Offline — no cached data. Connect to internet to sync.
           </Text>
         </View>
-      ) : (
+      )}
+
+      {/* Results */}
+      {isSearching ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={Colors.primary} />
+          <Text style={styles.loadingText}>Searching...</Text>
+        </View>
+      ) : showResults === "found" ? (
         <FlatList
           data={results}
           keyExtractor={(item) => item.id.toString()}
-          contentContainerStyle={[styles.listContent, { paddingBottom: bottomPad + 20 }]}
+          contentContainerStyle={[styles.resultsList, { paddingBottom: bottomPad + 80 }]}
           showsVerticalScrollIndicator={false}
+          ListHeaderComponent={
+            <Text style={styles.resultsCount}>
+              {results.length} result{results.length !== 1 ? "s" : ""} found
+            </Text>
+          }
           renderItem={({ item }) => (
             <Pressable
-              style={({ pressed }) => [styles.resultCard, pressed && { opacity: 0.85 }]}
-              onPress={() => router.push(`/repo-allocation/${item.id}`)}
+              style={({ pressed }) => [styles.resultCard, pressed && { opacity: 0.7 }]}
+              onPress={() => {
+                Haptics.selectionAsync();
+                setResults([]);
+                setShowResults("none");
+                router.push({ pathname: "/allocation/[id]", params: { id: item.id.toString() } });
+              }}
             >
               <View style={styles.resultCardTop}>
-                <View style={styles.regBadge}>
+                <View style={styles.regNoContainer}>
                   <Text style={styles.regNo}>{item.registration_no}</Text>
                 </View>
-                {item.bkt ? (
-                  <View style={[styles.bktBadge, { backgroundColor: Colors.surface2 }]}>
-                    <Text style={styles.bktText}>BKT: {item.bkt}</Text>
-                  </View>
-                ) : null}
+                <View style={[styles.bktBadge, { backgroundColor: Colors.surface2 }]}>
+                  <Text style={styles.bktText}>BKT {item.bkt}</Text>
+                </View>
               </View>
               <Text style={styles.customerName}>{item.customer_name}</Text>
               <Text style={styles.assetMake}>{item.asset_make}</Text>
               <View style={styles.resultCardBottom}>
                 <View style={styles.posRow}>
                   <Ionicons name="cash-outline" size={14} color={Colors.textMuted} />
-                  <Text style={styles.posText}>POS: ₹{Number(item.pos).toLocaleString("en-IN")}</Text>
+                  <Text style={styles.posText}>
+                    POS: ₹{Number(item.pos).toLocaleString("en-IN")}
+                  </Text>
                 </View>
                 <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
               </View>
             </Pressable>
           )}
         />
+      ) : showResults === "notfound" ? (
+        <View style={styles.notFoundContainer}>
+          <View style={styles.notFoundIcon}>
+            <Ionicons name="search-outline" size={40} color={Colors.textMuted} />
+          </View>
+          <Text style={styles.notFoundTitle}>No Data Found</Text>
+          <Text style={styles.notFoundSubtitle}>No allocation found</Text>
+        </View>
+      ) : (
+        <View style={styles.hintContainer}>
+          <View style={styles.hintIcon}>
+            <Ionicons name="bicycle-outline" size={40} color={Colors.primary} />
+          </View>
+          <Text style={styles.hintTitle}>Search Allocations</Text>
+          <Text style={styles.hintSubtitle}>
+            {searchType === "chassis"
+              ? "Enter a chassis number to find customer details"
+              : "Enter a vehicle registration number to find customer details"}
+          </Text>
+        </View>
       )}
     </View>
   );
@@ -230,31 +345,39 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     paddingHorizontal: 20,
-    paddingBottom: 16,
+    paddingBottom: 12,
   },
-  welcomeText: { fontFamily: "Inter_400Regular", fontSize: 13, color: Colors.textMuted },
-  userName: { fontFamily: "Inter_700Bold", fontSize: 20, color: Colors.textPrimary, marginTop: 2 },
-  topBarRight: { flexDirection: "row", alignItems: "center", gap: 10 },
-  repoBadge: {
-    backgroundColor: "#2A0A00",
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderWidth: 1,
-    borderColor: "#FF6B35",
-  },
-  repoBadgeText: { fontFamily: "Inter_700Bold", fontSize: 11, color: "#FF6B35" },
+  welcomeText: { fontFamily: "Inter_400Regular", fontSize: 13, color: Colors.textSecondary },
+  userName: { fontFamily: "Inter_700Bold", fontSize: 20, color: Colors.textPrimary },
   logoutBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     backgroundColor: Colors.surface,
     borderWidth: 1,
     borderColor: Colors.border,
     alignItems: "center",
     justifyContent: "center",
   },
-  searchSection: { paddingHorizontal: 20, gap: 12 },
+  noCacheWarning: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginHorizontal: 20,
+    marginBottom: 12,
+    backgroundColor: Colors.redBg,
+    borderRadius: 10,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: Colors.red,
+  },
+  noCacheText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 13,
+    color: Colors.red,
+    flex: 1,
+  },
+  searchSection: { paddingHorizontal: 20, gap: 12, marginBottom: 16 },
   toggleRow: {
     flexDirection: "row",
     backgroundColor: Colors.surface,
@@ -264,62 +387,78 @@ const styles = StyleSheet.create({
     padding: 4,
     gap: 4,
   },
-  toggleBtn: {
-    flex: 1,
-    paddingVertical: 10,
-    alignItems: "center",
-    borderRadius: 9,
-  },
-  toggleBtnActive: {
-    backgroundColor: Colors.primary,
-  },
-  toggleBtnText: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 14,
-    color: Colors.textMuted,
-  },
-  toggleBtnTextActive: {
-    color: Colors.background,
-  },
+  toggleBtn: { flex: 1, paddingVertical: 10, alignItems: "center", borderRadius: 9 },
+  toggleBtnActive: { backgroundColor: Colors.primary },
+  toggleBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: Colors.textMuted },
+  toggleBtnTextActive: { color: Colors.background },
   searchBox: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: Colors.surface,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    paddingHorizontal: 14,
-    height: 52,
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    borderWidth: 2,
+    borderColor: Colors.primary,
     gap: 10,
   },
   searchIcon: {},
   searchInput: {
     flex: 1,
-    fontFamily: "Inter_400Regular",
-    fontSize: 16,
+    fontFamily: "Inter_500Medium",
+    fontSize: 17,
     color: Colors.textPrimary,
-    height: "100%",
+    paddingVertical: 16,
+    letterSpacing: 0.5,
   },
   clearBtn: { padding: 4 },
-  searchBtn: {
-    backgroundColor: Colors.primary,
-    borderRadius: 14,
-    paddingVertical: 16,
+  loadingContainer: { flex: 1, alignItems: "center", justifyContent: "center", gap: 16 },
+  loadingText: { fontFamily: "Inter_400Regular", fontSize: 15, color: Colors.textSecondary },
+  notFoundContainer: {
+    flex: 1,
     alignItems: "center",
     justifyContent: "center",
+    paddingHorizontal: 32,
+    gap: 14,
   },
-  searchBtnText: { fontFamily: "Inter_700Bold", fontSize: 16, color: Colors.background },
-  listContent: { paddingHorizontal: 20, paddingTop: 16, gap: 12 },
+  notFoundIcon: {
+    width: 80,
+    height: 80,
+    borderRadius: 22,
+    backgroundColor: Colors.surface,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  notFoundTitle: { fontFamily: "Inter_700Bold", fontSize: 24, color: Colors.textPrimary },
+  notFoundSubtitle: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 15,
+    color: Colors.textSecondary,
+    textAlign: "center",
+    lineHeight: 22,
+  },
+  resultsList: { paddingHorizontal: 20, gap: 12 },
+  resultsCount: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 13,
+    color: Colors.textSecondary,
+    marginBottom: 4,
+  },
   resultCard: {
     backgroundColor: Colors.surface,
     borderRadius: 16,
     padding: 16,
-    gap: 6,
+    gap: 8,
     borderWidth: 1,
     borderColor: Colors.border,
   },
-  resultCardTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  regBadge: {
+  resultCardTop: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  regNoContainer: {
     backgroundColor: "#1A1400",
     paddingHorizontal: 12,
     paddingVertical: 6,
