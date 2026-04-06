@@ -14,6 +14,7 @@ import {
   searchAllocationByRegistration,
   searchAllocationByChassis,
   getAllocationById,
+  getAllAllocations,
   bulkInsertAllocations,
   clearAllocations,
   getAllocationCount,
@@ -179,6 +180,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const results = await searchAllocationByRegistration(reg);
       res.json(results);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // ↓ NEW: returns all allocations for offline caching on the FOS app
+  app.get("/api/allocations/all", requireAuth, async (req, res) => {
+    try {
+      const allocations = await getAllAllocations();
+      res.json(allocations);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }
