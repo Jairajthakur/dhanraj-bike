@@ -96,7 +96,6 @@ export default function FosSearchScreen() {
         setResults(found);
         setShowResults("found");
         Haptics.selectionAsync();
-        Keyboard.dismiss();
         setQuery(""); // safe now — showResults is "found" so useEffect won't clear
       } else {
         // Not found
@@ -199,7 +198,7 @@ export default function FosSearchScreen() {
             }}
             autoCapitalize="none"
             autoCorrect={false}
-            keyboardType="default"
+            keyboardType="numeric"
           />
           {(query.length > 0 || showResults !== "none") && (
             <Pressable onPress={clearSearch} style={styles.clearBtn}>
