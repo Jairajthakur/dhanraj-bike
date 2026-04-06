@@ -104,6 +104,12 @@ export async function getAllocationById(id: number): Promise<Allocation | null> 
   return result.rows[0] || null;
 }
 
+// Returns all allocations — used by FOS app for offline caching
+export async function getAllAllocations(): Promise<Allocation[]> {
+  const result = await pool.query("SELECT * FROM allocations ORDER BY id");
+  return result.rows;
+}
+
 export async function bulkInsertAllocations(rows: Partial<Allocation>[]): Promise<number> {
   if (rows.length === 0) return 0;
   const client = await pool.connect();
