@@ -13,10 +13,12 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import * as Network from "expo-network";
 import { Colors } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
 import { getApiUrl, apiRequest } from "@/lib/query-client";
 import { fetch } from "expo/fetch";
+import { loadAllocationsFromCache, findById, CachedAllocation } from "@/lib/offlineCache";
 
 function formatDate(value: string | number | null | undefined): string {
   if (!value || value === "" || value === "0") return "—";
@@ -37,30 +39,7 @@ function formatDate(value: string | number | null | undefined): string {
   return String(value);
 }
 
-interface Allocation {
-  id: number;
-  loan_no: string;
-  app_id: string;
-  customer_name: string;
-  emi: number;
-  emi_due: number;
-  cbc: number;
-  lpp: number;
-  cbc_lpp: number;
-  pos: number;
-  bkt: string;
-  customer_address: string;
-  first_emi_due_date: string;
-  loan_maturity_date: string;
-  asset_make: string;
-  registration_no: string;
-  engine_no: string;
-  chassis_no: string;
-  ten: string;
-  number: string;
-  status: string;
-  detail_fb: string;
-}
+type Allocation = CachedAllocation;
 
 function DetailRow({
   label,
@@ -106,21 +85,49 @@ export default function AllocationDetailScreen() {
   const [allocation, setAllocation] = useState<Allocation | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [notifSent, setNotifSent] = useState(false);
+  const [isOffline, setIsOffline] = useState(false);
 
   useEffect(() => {
     loadAllocation();
   }, [id]);
 
   async function loadAllocation() {
+    const numId = parseInt(id ?? "0", 10);
+
+    // Check network
+    const net = await Network.getNetworkStateAsync();
+    const online = !!(net.isConnected && net.isInternetReachable);
+
+    if (online) {
+      // Try fetching live data
+      try {
+        const baseUrl = getApiUrl();
+        const url = new URL(`/api/allocations/${numId}`, baseUrl);
+        const res = await fetch(url.toString(), { credentials: "include" });
+        if (!res.ok) throw new Error("Not found");
+        const data: Allocation = await res.json();
+        setAllocation(data);
+        setIsOffline(false);
+        if (user?.role === "fos") sendNotification(data);
+        return;
+      } catch {
+        // Fall through to cache
+      }
+    }
+
+    // Offline or fetch failed → load from cache
+    setIsOffline(true);
     try {
-      const baseUrl = getApiUrl();
-      const url = new URL(`/api/allocations/${id}`, baseUrl);
-      const res = await fetch(url.toString(), { credentials: "include" });
-      if (!res.ok) throw new Error("Not found");
-      const data = await res.json();
-      setAllocation(data);
-      if (user?.role === "fos") {
-        sendNotification(data);
+      const cached = await loadAllocationsFromCache();
+      const found = findById(cached, numId);
+      if (found) {
+        setAllocation(found);
+      } else {
+        Alert.alert(
+          "Not Found",
+          "This record is not in your offline cache. Connect to the internet to load it.",
+          [{ text: "Go Back", onPress: () => router.back() }]
+        );
       }
     } catch {
       Alert.alert("Error", "Failed to load allocation data");
@@ -128,6 +135,8 @@ export default function AllocationDetailScreen() {
     } finally {
       setIsLoading(false);
     }
+
+    setIsLoading(false);
   }
 
   async function sendNotification(data: Allocation) {
@@ -157,6 +166,14 @@ export default function AllocationDetailScreen() {
 
   return (
     <View style={styles.container}>
+      {/* Offline banner */}
+      {isOffline && (
+        <View style={styles.offlineBanner}>
+          <Ionicons name="cloud-offline-outline" size={14} color={Colors.red} />
+          <Text style={styles.offlineBannerText}>Viewing cached data (offline)</Text>
+        </View>
+      )}
+
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 32 }]}
@@ -252,6 +269,21 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  offlineBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: Colors.redBg,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.red,
+    paddingHorizontal: 16,
+    paddingVertical: 7,
+  },
+  offlineBannerText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 12,
+    color: Colors.red,
+  },
   scroll: { flex: 1 },
   scrollContent: { padding: 16, gap: 0 },
   heroCard: {
@@ -301,20 +333,9 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: Colors.red,
   },
-  bktLabel: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 10,
-    color: Colors.red,
-  },
-  bktValue: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 22,
-    color: Colors.red,
-  },
-  sectionHeader: {
-    paddingVertical: 10,
-    paddingHorizontal: 4,
-  },
+  bktLabel: { fontFamily: "Inter_400Regular", fontSize: 10, color: Colors.red },
+  bktValue: { fontFamily: "Inter_700Bold", fontSize: 22, color: Colors.red },
+  sectionHeader: { paddingVertical: 10, paddingHorizontal: 4 },
   sectionTitle: {
     fontFamily: "Inter_600SemiBold",
     fontSize: 12,
@@ -351,18 +372,9 @@ const styles = StyleSheet.create({
     flex: 1,
     lineHeight: 20,
   },
-  highlightValue: {
-    fontFamily: "Inter_600SemiBold",
-    color: Colors.primary,
-  },
-  phoneValue: {
-    color: Colors.blue,
-    textDecorationLine: "underline",
-  },
-  rowDivider: {
-    height: 1,
-    backgroundColor: Colors.border,
-  },
+  highlightValue: { fontFamily: "Inter_600SemiBold", color: Colors.primary },
+  phoneValue: { color: Colors.blue, textDecorationLine: "underline" },
+  rowDivider: { height: 1, backgroundColor: Colors.border },
   notifSentBanner: {
     flexDirection: "row",
     alignItems: "center",
@@ -375,9 +387,5 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginTop: 8,
   },
-  notifSentText: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 14,
-    color: Colors.green,
-  },
+  notifSentText: { fontFamily: "Inter_500Medium", fontSize: 14, color: Colors.green },
 });
