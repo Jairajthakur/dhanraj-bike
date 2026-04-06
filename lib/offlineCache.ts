@@ -2,7 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const CACHE_KEY = "fos_allocations_cache";
 const CACHE_META_KEY = "fos_allocations_meta";
-const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
+const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 export interface CachedAllocation {
   id: number;
