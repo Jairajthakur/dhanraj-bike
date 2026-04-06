@@ -169,7 +169,6 @@ export default function FosSearchScreen() {
     setResults([]);
     setShowResults("none");
     setIsSearching(false);
-    inputRef.current?.focus();
   }
 
   function switchType(type: "reg" | "chassis") {
@@ -178,7 +177,6 @@ export default function FosSearchScreen() {
     setResults([]);
     setShowResults("none");
     setIsSearching(false);
-    setTimeout(() => inputRef.current?.focus(), 50);
   }
 
   return (
