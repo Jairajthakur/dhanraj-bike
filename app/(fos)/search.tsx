@@ -71,7 +71,7 @@ export default function FosSearchScreen() {
 
     // Check network
     const net = await Network.getNetworkStateAsync();
-    const online = !!(net.isConnected && net.isInternetReachable);
+    const online = net.isConnected === true;
     setIsOnline(online);
 
     if (online) {
@@ -98,7 +98,7 @@ export default function FosSearchScreen() {
       setLastSynced(formatSyncTime(Date.now()));
       setIsOnline(true);
     } catch {
-      setIsOnline(false);
+      // don't set offline here, sync may fail for other reasons
     } finally {
       if (!silent) setIsSyncing(false);
     }
