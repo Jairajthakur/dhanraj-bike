@@ -144,11 +144,16 @@ export default function FosSearchScreen() {
     if (found.length >= 1) {
       setResults(found);
       setShowResults("found");
+      setQuery("");
       Haptics.selectionAsync();
     } else {
       setResults([]);
       setShowResults("notfound");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      setTimeout(() => {
+        setShowResults("none");
+        inputRef.current?.focus();
+      }, 1000);
     }
 
     setIsSearching(false);
@@ -178,10 +183,12 @@ export default function FosSearchScreen() {
         <View style={styles.statusLeft}>
           <View style={[styles.statusDot, isOnline ? styles.dotOnline : styles.dotOffline]} />
           <Text style={styles.statusText}>{isOnline ? "Online" : "Offline"}</Text>
-          {cacheCount > 0 && (
+          {cacheCount > 0 ? (
             <Text style={styles.statusText}>· {cacheCount} records</Text>
+          ) : (
+            <Text style={styles.statusMuted}>· No cache — tap ↻ to sync</Text>
           )}
-          {lastSynced && (
+          {lastSynced && cacheCount > 0 && (
             <Text style={styles.statusMuted}>· Synced {lastSynced}</Text>
           )}
         </View>
@@ -194,7 +201,7 @@ export default function FosSearchScreen() {
             {isSyncing ? (
               <ActivityIndicator size={14} color={Colors.primary} />
             ) : (
-              <Ionicons name="refresh" size={16} color={Colors.primary} />
+              <Ionicons name="refresh-circle" size={20} color={Colors.primary} />
             )}
           </Pressable>
         )}
