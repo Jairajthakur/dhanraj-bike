@@ -38,41 +38,38 @@ export default function FosSearchScreen() {
   const [searchType, setSearchType] = useState<"reg" | "chassis">("reg");
   const [results, setResults] = useState<Allocation[]>([]);
   const [isSearching, setIsSearching] = useState(false);
-  const [hasSearched, setHasSearched] = useState(false);
+  // showResults is independent of query — won't clear when query is wiped
+  const [showResults, setShowResults] = useState<"none" | "found" | "notfound">("none");
   const inputRef = useRef<TextInput>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
-  // Prevents useEffect from clearing results when query is wiped after a successful find
-  const skipEffectRef = useRef(false);
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
   useEffect(() => {
-  if (debounceRef.current) clearTimeout(debounceRef.current);
-
-  if (skipEffectRef.current) {
-    skipEffectRef.current = false;
-    return;
-  }
-
-  const trimmed = query.trim();
-
-  if (trimmed.length >= 3) {
-    debounceRef.current = setTimeout(() => {
-      handleSearch(trimmed);
-    }, 50);
-  } else if (trimmed.length === 0) {
-    abortRef.current?.abort();
-    setResults([]);
-    setHasSearched(false);
-    setIsSearching(false);
-  }
-
-  return () => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-  };
-}, [query, searchType]);
+
+    const trimmed = query.trim();
+
+    if (trimmed.length >= 3) {
+      // Only search if we're not already showing results
+      if (showResults === "none") {
+        debounceRef.current = setTimeout(() => {
+          handleSearch(trimmed);
+        }, 50);
+      }
+    } else if (trimmed.length === 0 && showResults === "none") {
+      abortRef.current?.abort();
+      setResults([]);
+      setIsSearching(false);
+    }
+
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [query, searchType]);
+
   async function handleSearch(q: string) {
     if (q.length < 3) return;
 
@@ -80,7 +77,6 @@ export default function FosSearchScreen() {
     abortRef.current = new AbortController();
 
     setIsSearching(true);
-    setHasSearched(true);
 
     try {
       const baseUrl = getApiUrl();
@@ -94,29 +90,29 @@ export default function FosSearchScreen() {
       });
       const data = await res.json();
       const found = Array.isArray(data) ? data : [];
-      setResults(found);
 
       if (found.length >= 1) {
+        // Set results FIRST, then wipe query
+        setResults(found);
+        setShowResults("found");
         Haptics.selectionAsync();
         Keyboard.dismiss();
-        skipEffectRef.current = true;
-        // Batch these together — results stay, query clears
-        setResults(found);
-        setQuery("");
+        setQuery(""); // safe now — showResults is "found" so useEffect won't clear
       } else {
-        // Not found — wipe fast and refocus
+        // Not found
+        setResults([]);
+        setShowResults("notfound");
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         setTimeout(() => {
+          setShowResults("none");
           setQuery("");
-          setResults([]);
-          setHasSearched(false);
           inputRef.current?.focus();
-        }, 150);
+        }, 300);
       }
     } catch (e: any) {
       if (e?.name !== "AbortError") {
         setResults([]);
-        setHasSearched(false);
+        setShowResults("none");
       }
     } finally {
       setIsSearching(false);
@@ -127,7 +123,7 @@ export default function FosSearchScreen() {
     abortRef.current?.abort();
     setQuery("");
     setResults([]);
-    setHasSearched(false);
+    setShowResults("none");
     setIsSearching(false);
     inputRef.current?.focus();
   }
@@ -137,7 +133,7 @@ export default function FosSearchScreen() {
     setSearchType(type);
     setQuery("");
     setResults([]);
-    setHasSearched(false);
+    setShowResults("none");
     setIsSearching(false);
     setTimeout(() => inputRef.current?.focus(), 50);
   }
@@ -190,7 +186,10 @@ export default function FosSearchScreen() {
             ref={inputRef}
             style={styles.searchInput}
             value={query}
-            onChangeText={(text) => setQuery(text.toUpperCase())}
+            onChangeText={(text) => {
+              setShowResults("none"); // reset when user starts typing again
+              setQuery(text.toUpperCase());
+            }}
             placeholder={searchType === "chassis" ? "Enter chassis number..." : "Enter registration number..."}
             placeholderTextColor={Colors.textMuted}
             returnKeyType="search"
@@ -202,7 +201,7 @@ export default function FosSearchScreen() {
             autoCorrect={false}
             keyboardType="default"
           />
-          {query.length > 0 && (
+          {(query.length > 0 || showResults !== "none") && (
             <Pressable onPress={clearSearch} style={styles.clearBtn}>
               <Ionicons name="close-circle" size={18} color={Colors.textMuted} />
             </Pressable>
@@ -215,60 +214,56 @@ export default function FosSearchScreen() {
           <ActivityIndicator size="large" color={Colors.primary} />
           <Text style={styles.loadingText}>Searching...</Text>
         </View>
-      ) : hasSearched ? (
-        results.length === 0 ? (
-          <View style={styles.notFoundContainer}>
-            <View style={styles.notFoundIcon}>
-              <Ionicons name="search-outline" size={40} color={Colors.textMuted} />
-            </View>
-            <Text style={styles.notFoundTitle}>No Data Found</Text>
-            <Text style={styles.notFoundSubtitle}>
-              No allocation found for "{query}"
+      ) : showResults === "found" ? (
+        <FlatList
+          data={results}
+          keyExtractor={(item) => item.id.toString()}
+          contentContainerStyle={[styles.resultsList, { paddingBottom: bottomPad + 80 }]}
+          showsVerticalScrollIndicator={false}
+          ListHeaderComponent={
+            <Text style={styles.resultsCount}>
+              {results.length} result{results.length !== 1 ? "s" : ""} found
             </Text>
+          }
+          renderItem={({ item }) => (
+            <Pressable
+              style={({ pressed }) => [styles.resultCard, pressed && { opacity: 0.7 }]}
+              onPress={() => {
+                Haptics.selectionAsync();
+                setResults([]);
+                setShowResults("none");
+                router.push({ pathname: "/allocation/[id]", params: { id: item.id.toString() } });
+              }}
+            >
+              <View style={styles.resultCardTop}>
+                <View style={styles.regNoContainer}>
+                  <Text style={styles.regNo}>{item.registration_no}</Text>
+                </View>
+                <View style={[styles.bktBadge, { backgroundColor: Colors.surface2 }]}>
+                  <Text style={styles.bktText}>BKT {item.bkt}</Text>
+                </View>
+              </View>
+              <Text style={styles.customerName}>{item.customer_name}</Text>
+              <Text style={styles.assetMake}>{item.asset_make}</Text>
+              <View style={styles.resultCardBottom}>
+                <View style={styles.posRow}>
+                  <Ionicons name="cash-outline" size={14} color={Colors.textMuted} />
+                  <Text style={styles.posText}>POS: ₹{Number(item.pos).toLocaleString("en-IN")}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
+              </View>
+            </Pressable>
+          )}
+        />
+      ) : showResults === "notfound" ? (
+        <View style={styles.notFoundContainer}>
+          <View style={styles.notFoundIcon}>
+            <Ionicons name="search-outline" size={40} color={Colors.textMuted} />
           </View>
-        ) : (
-          <FlatList
-            data={results}
-            keyExtractor={(item) => item.id.toString()}
-            contentContainerStyle={[styles.resultsList, { paddingBottom: bottomPad + 80 }]}
-            showsVerticalScrollIndicator={false}
-            ListHeaderComponent={
-              <Text style={styles.resultsCount}>
-                {results.length} result{results.length !== 1 ? "s" : ""} found
-              </Text>
-            }
-            renderItem={({ item }) => (
-              <Pressable
-                style={({ pressed }) => [styles.resultCard, pressed && { opacity: 0.7 }]}
-                onPress={() => {
-                  Haptics.selectionAsync();
-                  setResults([]);
-                  setHasSearched(false);
-                  router.push({ pathname: "/allocation/[id]", params: { id: item.id.toString() } });
-                }}
-              >
-                <View style={styles.resultCardTop}>
-                  <View style={styles.regNoContainer}>
-                    <Text style={styles.regNo}>{item.registration_no}</Text>
-                  </View>
-                  <View style={[styles.bktBadge, { backgroundColor: Colors.surface2 }]}>
-                    <Text style={styles.bktText}>BKT {item.bkt}</Text>
-                  </View>
-                </View>
-                <Text style={styles.customerName}>{item.customer_name}</Text>
-                <Text style={styles.assetMake}>{item.asset_make}</Text>
-                <View style={styles.resultCardBottom}>
-                  <View style={styles.posRow}>
-                    <Ionicons name="cash-outline" size={14} color={Colors.textMuted} />
-                    <Text style={styles.posText}>POS: ₹{Number(item.pos).toLocaleString("en-IN")}</Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
-                </View>
-              </Pressable>
-            )}
-          />
-        )
-      ) : query.length === 0 ? (
+          <Text style={styles.notFoundTitle}>No Data Found</Text>
+          <Text style={styles.notFoundSubtitle}>No allocation found</Text>
+        </View>
+      ) : (
         <View style={styles.hintContainer}>
           <View style={styles.hintIcon}>
             <Ionicons name="bicycle-outline" size={40} color={Colors.primary} />
@@ -280,7 +275,7 @@ export default function FosSearchScreen() {
               : "Enter a vehicle registration number to find customer details"}
           </Text>
         </View>
-      ) : null}
+      )}
     </View>
   );
 }
