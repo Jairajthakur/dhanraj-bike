@@ -181,39 +181,6 @@ export default function FosSearchScreen() {
     setTimeout(() => inputRef.current?.focus(), 50);
   }
 
-  // ─── Status bar ───────────────────────────────────────────────────────────
-  function StatusBar() {
-    return (
-      <View style={styles.statusBar}>
-        <View style={styles.statusLeft}>
-          <View style={[styles.statusDot, isOnline ? styles.dotOnline : styles.dotOffline]} />
-          <Text style={styles.statusText}>{isOnline ? "Online" : "Offline"}</Text>
-          {cacheCount > 0 ? (
-            <Text style={styles.statusText}>· {cacheCount} records</Text>
-          ) : (
-            <Text style={styles.statusMuted}>· No cache — tap ↻ to sync</Text>
-          )}
-          {lastSynced && cacheCount > 0 && (
-            <Text style={styles.statusMuted}>· Synced {lastSynced}</Text>
-          )}
-        </View>
-        {isOnline && (
-          <Pressable
-            onPress={() => syncAllocations(false)}
-            disabled={isSyncing}
-            style={styles.syncBtn}
-          >
-            {isSyncing ? (
-              <ActivityIndicator size={14} color={Colors.primary} />
-            ) : (
-              <Ionicons name="refresh-circle" size={20} color={Colors.primary} />
-            )}
-          </Pressable>
-        )}
-      </View>
-    );
-  }
-
   return (
     <View style={[styles.container, { paddingTop: topPad }]}>
       {/* Top bar */}
@@ -233,8 +200,6 @@ export default function FosSearchScreen() {
           <Ionicons name="log-out-outline" size={20} color={Colors.textMuted} />
         </Pressable>
       </View>
-
-      <StatusBar />
 
       {/* Search section */}
       <View style={styles.searchSection}>
@@ -399,18 +364,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  // Status bar
-  statusBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 20,
-    paddingVertical: 6,
-    marginBottom: 8,
-    backgroundColor: Colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-  },
+  
   statusLeft: { flexDirection: "row", alignItems: "center", gap: 6, flex: 1, flexWrap: "wrap" },
   statusDot: { width: 8, height: 8, borderRadius: 4 },
   dotOnline: { backgroundColor: Colors.green },
