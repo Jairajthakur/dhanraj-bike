@@ -119,10 +119,11 @@ export default function FosSearchScreen() {
 
     const trimmed = query.trim();
 
-    if (trimmed.length >= 3 && showResults === "none") {
-      debounceRef.current = setTimeout(() => doSearch(trimmed), 50);
-    } else if (trimmed.length === 0 && showResults === "none") {
+    if (trimmed.length >= 3) {
+      debounceRef.current = setTimeout(() => doSearch(trimmed), 600);
+    } else {
       setResults([]);
+      setShowResults("none");
       setIsSearching(false);
     }
 
@@ -144,16 +145,10 @@ export default function FosSearchScreen() {
       setResults(found);
       setShowResults("found");
       Haptics.selectionAsync();
-      setQuery("");
     } else {
       setResults([]);
       setShowResults("notfound");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      setTimeout(() => {
-        setShowResults("none");
-        setQuery("");
-        inputRef.current?.focus();
-      }, 300);
     }
 
     setIsSearching(false);
@@ -262,7 +257,6 @@ export default function FosSearchScreen() {
             style={styles.searchInput}
             value={query}
             onChangeText={(text) => {
-              setShowResults("none");
               setQuery(text.toUpperCase());
             }}
             placeholder={
