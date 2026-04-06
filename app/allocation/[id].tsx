@@ -96,7 +96,7 @@ export default function AllocationDetailScreen() {
 
     // Check network
     const net = await Network.getNetworkStateAsync();
-    const online = !!(net.isConnected && net.isInternetReachable);
+    const online = net.isConnected === true;
 
     if (online) {
       // Try fetching live data
