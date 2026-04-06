@@ -42,6 +42,7 @@ export default function FosSearchScreen() {
 
   // Offline / cache state
   const [allAllocations, setAllAllocations] = useState<CachedAllocation[]>([]);
+  const allAllocationsRef = useRef<CachedAllocation[]>([]);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
   const [lastSynced, setLastSynced] = useState<string | null>(null);
@@ -52,6 +53,11 @@ export default function FosSearchScreen() {
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
+
+  // Keep ref in sync so doSearch always has latest data
+  useEffect(() => {
+    allAllocationsRef.current = allAllocations;
+  }, [allAllocations]);
 
   // ─── Init: load cache then try to sync ───────────────────────────────────
   useEffect(() => {
@@ -138,8 +144,8 @@ export default function FosSearchScreen() {
 
     const found =
       searchType === "chassis"
-        ? searchByChassis(allAllocations, q)
-        : searchByReg(allAllocations, q);
+        ? searchByChassis(allAllocationsRef.current, q)
+        : searchByReg(allAllocationsRef.current, q);
 
     if (found.length >= 1) {
       setResults(found);
