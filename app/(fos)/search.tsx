@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -14,53 +14,114 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import * as Haptics from "expo-haptics";
+import * as Network from "expo-network";
 import { Colors } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
 import { getApiUrl } from "@/lib/query-client";
 import { fetch } from "expo/fetch";
-
-interface Allocation {
-  id: number;
-  loan_no: string;
-  app_id: string;
-  customer_name: string;
-  registration_no: string;
-  asset_make: string;
-  bkt: string;
-  pos: number;
-  status: string;
-}
+import {
+  CachedAllocation,
+  saveAllocationsToCache,
+  loadAllocationsFromCache,
+  getCacheMeta,
+  isCacheFresh,
+  searchByReg,
+  searchByChassis,
+  clearCache,
+} from "@/lib/offlineCache";
 
 export default function FosSearchScreen() {
   const insets = useSafeAreaInsets();
   const { user, logout } = useAuth();
+
   const [query, setQuery] = useState("");
   const [searchType, setSearchType] = useState<"reg" | "chassis">("reg");
-  const [results, setResults] = useState<Allocation[]>([]);
+  const [results, setResults] = useState<CachedAllocation[]>([]);
   const [isSearching, setIsSearching] = useState(false);
-  // showResults is independent of query — won't clear when query is wiped
   const [showResults, setShowResults] = useState<"none" | "found" | "notfound">("none");
+
+  // Offline / cache state
+  const [allAllocations, setAllAllocations] = useState<CachedAllocation[]>([]);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [isOnline, setIsOnline] = useState(true);
+  const [lastSynced, setLastSynced] = useState<string | null>(null);
+  const [cacheCount, setCacheCount] = useState(0);
+
   const inputRef = useRef<TextInput>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
+  // ─── Init: load cache then try to sync ───────────────────────────────────
+  useEffect(() => {
+    initCache();
+  }, []);
+
+  async function initCache() {
+    // Load whatever is already cached
+    const cached = await loadAllocationsFromCache();
+    setAllAllocations(cached);
+
+    const meta = await getCacheMeta();
+    if (meta) {
+      setCacheCount(meta.count);
+      setLastSynced(formatSyncTime(meta.lastSynced));
+    }
+
+    // Check network
+    const net = await Network.getNetworkStateAsync();
+    const online = !!(net.isConnected && net.isInternetReachable);
+    setIsOnline(online);
+
+    if (online) {
+      const fresh = await isCacheFresh();
+      if (!fresh) {
+        // Auto-sync if cache is stale or empty
+        await syncAllocations(true);
+      }
+    }
+  }
+
+  // ─── Sync from server ─────────────────────────────────────────────────────
+  async function syncAllocations(silent = false) {
+    if (!silent) setIsSyncing(true);
+    try {
+      const baseUrl = getApiUrl();
+      const url = new URL("/api/allocations/all", baseUrl);
+      const res = await fetch(url.toString(), { credentials: "include" });
+      if (!res.ok) throw new Error("Sync failed");
+      const data: CachedAllocation[] = await res.json();
+      await saveAllocationsToCache(data);
+      setAllAllocations(data);
+      setCacheCount(data.length);
+      setLastSynced(formatSyncTime(Date.now()));
+      setIsOnline(true);
+    } catch {
+      setIsOnline(false);
+    } finally {
+      if (!silent) setIsSyncing(false);
+    }
+  }
+
+  function formatSyncTime(ts: number): string {
+    const d = new Date(ts);
+    const hh = d.getHours().toString().padStart(2, "0");
+    const mm = d.getMinutes().toString().padStart(2, "0");
+    const day = d.getDate().toString().padStart(2, "0");
+    const mon = (d.getMonth() + 1).toString().padStart(2, "0");
+    return `${day}/${mon} ${hh}:${mm}`;
+  }
+
+  // ─── Debounced search from local cache ───────────────────────────────────
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
 
     const trimmed = query.trim();
 
-    if (trimmed.length >= 3) {
-      // Only search if we're not already showing results
-      if (showResults === "none") {
-        debounceRef.current = setTimeout(() => {
-          handleSearch(trimmed);
-        }, 50);
-      }
+    if (trimmed.length >= 3 && showResults === "none") {
+      debounceRef.current = setTimeout(() => doSearch(trimmed), 50);
     } else if (trimmed.length === 0 && showResults === "none") {
-      abortRef.current?.abort();
       setResults([]);
       setIsSearching(false);
     }
@@ -70,56 +131,35 @@ export default function FosSearchScreen() {
     };
   }, [query, searchType]);
 
-  async function handleSearch(q: string) {
+  function doSearch(q: string) {
     if (q.length < 3) return;
-
-    abortRef.current?.abort();
-    abortRef.current = new AbortController();
-
     setIsSearching(true);
 
-    try {
-      const baseUrl = getApiUrl();
-      const param = searchType === "chassis"
-        ? `chassis=${encodeURIComponent(q)}`
-        : `reg=${encodeURIComponent(q)}`;
-      const url = new URL(`/api/allocations/search?${param}`, baseUrl);
-      const res = await fetch(url.toString(), {
-        credentials: "include",
-        signal: abortRef.current.signal,
-      });
-      const data = await res.json();
-      const found = Array.isArray(data) ? data : [];
+    const found =
+      searchType === "chassis"
+        ? searchByChassis(allAllocations, q)
+        : searchByReg(allAllocations, q);
 
-      if (found.length >= 1) {
-        // Set results FIRST, then wipe query
-        setResults(found);
-        setShowResults("found");
-        Haptics.selectionAsync();
-        setQuery(""); // safe now — showResults is "found" so useEffect won't clear
-      } else {
-        // Not found
-        setResults([]);
-        setShowResults("notfound");
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-        setTimeout(() => {
-          setShowResults("none");
-          setQuery("");
-          inputRef.current?.focus();
-        }, 300);
-      }
-    } catch (e: any) {
-      if (e?.name !== "AbortError") {
-        setResults([]);
+    if (found.length >= 1) {
+      setResults(found);
+      setShowResults("found");
+      Haptics.selectionAsync();
+      setQuery("");
+    } else {
+      setResults([]);
+      setShowResults("notfound");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      setTimeout(() => {
         setShowResults("none");
-      }
-    } finally {
-      setIsSearching(false);
+        setQuery("");
+        inputRef.current?.focus();
+      }, 300);
     }
+
+    setIsSearching(false);
   }
 
   function clearSearch() {
-    abortRef.current?.abort();
     setQuery("");
     setResults([]);
     setShowResults("none");
@@ -128,7 +168,6 @@ export default function FosSearchScreen() {
   }
 
   function switchType(type: "reg" | "chassis") {
-    abortRef.current?.abort();
     setSearchType(type);
     setQuery("");
     setResults([]);
@@ -137,8 +176,40 @@ export default function FosSearchScreen() {
     setTimeout(() => inputRef.current?.focus(), 50);
   }
 
+  // ─── Status bar ───────────────────────────────────────────────────────────
+  function StatusBar() {
+    return (
+      <View style={styles.statusBar}>
+        <View style={styles.statusLeft}>
+          <View style={[styles.statusDot, isOnline ? styles.dotOnline : styles.dotOffline]} />
+          <Text style={styles.statusText}>{isOnline ? "Online" : "Offline"}</Text>
+          {cacheCount > 0 && (
+            <Text style={styles.statusText}>· {cacheCount} records</Text>
+          )}
+          {lastSynced && (
+            <Text style={styles.statusMuted}>· Synced {lastSynced}</Text>
+          )}
+        </View>
+        {isOnline && (
+          <Pressable
+            onPress={() => syncAllocations(false)}
+            disabled={isSyncing}
+            style={styles.syncBtn}
+          >
+            {isSyncing ? (
+              <ActivityIndicator size={14} color={Colors.primary} />
+            ) : (
+              <Ionicons name="refresh" size={16} color={Colors.primary} />
+            )}
+          </Pressable>
+        )}
+      </View>
+    );
+  }
+
   return (
     <View style={[styles.container, { paddingTop: topPad }]}>
+      {/* Top bar */}
       <View style={styles.topBar}>
         <View>
           <Text style={styles.welcomeText}>Welcome,</Text>
@@ -146,6 +217,7 @@ export default function FosSearchScreen() {
         </View>
         <Pressable
           onPress={async () => {
+            await clearCache();
             await logout();
             router.replace("/login");
           }}
@@ -155,6 +227,9 @@ export default function FosSearchScreen() {
         </Pressable>
       </View>
 
+      <StatusBar />
+
+      {/* Search section */}
       <View style={styles.searchSection}>
         <View style={styles.toggleRow}>
           <Pressable
@@ -174,6 +249,7 @@ export default function FosSearchScreen() {
             </Text>
           </Pressable>
         </View>
+
         <View style={styles.searchBox}>
           <Ionicons
             name={isSearching ? "hourglass-outline" : "search"}
@@ -186,15 +262,19 @@ export default function FosSearchScreen() {
             style={styles.searchInput}
             value={query}
             onChangeText={(text) => {
-              setShowResults("none"); // reset when user starts typing again
+              setShowResults("none");
               setQuery(text.toUpperCase());
             }}
-            placeholder={searchType === "chassis" ? "Enter chassis number..." : "Enter registration number..."}
+            placeholder={
+              searchType === "chassis"
+                ? "Enter chassis number..."
+                : "Enter registration number..."
+            }
             placeholderTextColor={Colors.textMuted}
             returnKeyType="search"
             onSubmitEditing={() => {
               if (debounceRef.current) clearTimeout(debounceRef.current);
-              handleSearch(query.trim());
+              doSearch(query.trim());
             }}
             autoCapitalize="none"
             autoCorrect={false}
@@ -208,6 +288,17 @@ export default function FosSearchScreen() {
         </View>
       </View>
 
+      {/* No cache warning */}
+      {!isOnline && cacheCount === 0 && (
+        <View style={styles.noCacheWarning}>
+          <Ionicons name="cloud-offline-outline" size={18} color={Colors.red} />
+          <Text style={styles.noCacheText}>
+            Offline — no cached data. Connect to internet to sync.
+          </Text>
+        </View>
+      )}
+
+      {/* Results */}
       {isSearching ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={Colors.primary} />
@@ -247,7 +338,9 @@ export default function FosSearchScreen() {
               <View style={styles.resultCardBottom}>
                 <View style={styles.posRow}>
                   <Ionicons name="cash-outline" size={14} color={Colors.textMuted} />
-                  <Text style={styles.posText}>POS: ₹{Number(item.pos).toLocaleString("en-IN")}</Text>
+                  <Text style={styles.posText}>
+                    POS: ₹{Number(item.pos).toLocaleString("en-IN")}
+                  </Text>
                 </View>
                 <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
               </View>
@@ -286,7 +379,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     paddingHorizontal: 20,
-    paddingBottom: 20,
+    paddingBottom: 12,
   },
   welcomeText: { fontFamily: "Inter_400Regular", fontSize: 13, color: Colors.textSecondary },
   userName: { fontFamily: "Inter_700Bold", fontSize: 20, color: Colors.textPrimary },
@@ -300,11 +393,50 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  searchSection: {
+  // Status bar
+  statusBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: 20,
-    gap: 12,
-    marginBottom: 16,
+    paddingVertical: 6,
+    marginBottom: 8,
+    backgroundColor: Colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
   },
+  statusLeft: { flexDirection: "row", alignItems: "center", gap: 6, flex: 1, flexWrap: "wrap" },
+  statusDot: { width: 8, height: 8, borderRadius: 4 },
+  dotOnline: { backgroundColor: Colors.green },
+  dotOffline: { backgroundColor: Colors.red },
+  statusText: { fontFamily: "Inter_500Medium", fontSize: 12, color: Colors.textSecondary },
+  statusMuted: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.textMuted },
+  syncBtn: {
+    width: 28,
+    height: 28,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  noCacheWarning: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginHorizontal: 20,
+    marginBottom: 12,
+    backgroundColor: Colors.redBg,
+    borderRadius: 10,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: Colors.red,
+  },
+  noCacheText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 13,
+    color: Colors.red,
+    flex: 1,
+  },
+  // Search section
+  searchSection: { paddingHorizontal: 20, gap: 12, marginBottom: 16 },
   toggleRow: {
     flexDirection: "row",
     backgroundColor: Colors.surface,
@@ -314,23 +446,10 @@ const styles = StyleSheet.create({
     padding: 4,
     gap: 4,
   },
-  toggleBtn: {
-    flex: 1,
-    paddingVertical: 10,
-    alignItems: "center",
-    borderRadius: 9,
-  },
-  toggleBtnActive: {
-    backgroundColor: Colors.primary,
-  },
-  toggleBtnText: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 14,
-    color: Colors.textMuted,
-  },
-  toggleBtnTextActive: {
-    color: Colors.background,
-  },
+  toggleBtn: { flex: 1, paddingVertical: 10, alignItems: "center", borderRadius: 9 },
+  toggleBtnActive: { backgroundColor: Colors.primary },
+  toggleBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: Colors.textMuted },
+  toggleBtnTextActive: { color: Colors.background },
   searchBox: {
     flexDirection: "row",
     alignItems: "center",
@@ -351,12 +470,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   clearBtn: { padding: 4 },
-  loadingContainer: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 16,
-  },
+  loadingContainer: { flex: 1, alignItems: "center", justifyContent: "center", gap: 16 },
   loadingText: { fontFamily: "Inter_400Regular", fontSize: 15, color: Colors.textSecondary },
   notFoundContainer: {
     flex: 1,
@@ -412,11 +526,7 @@ const styles = StyleSheet.create({
     borderColor: Colors.primaryDark,
   },
   regNo: { fontFamily: "Inter_700Bold", fontSize: 15, color: Colors.primary, letterSpacing: 1 },
-  bktBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
-  },
+  bktBadge: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8 },
   bktText: { fontFamily: "Inter_600SemiBold", fontSize: 12, color: Colors.textSecondary },
   customerName: { fontFamily: "Inter_700Bold", fontSize: 17, color: Colors.textPrimary },
   assetMake: { fontFamily: "Inter_400Regular", fontSize: 13, color: Colors.textSecondary },
