@@ -151,15 +151,15 @@ export default function FosSearchScreen() {
         Keyboard.dismiss();        // ← ADD THIS
         inputRef.current?.blur();  // ← ADD THIS
         Haptics.selectionAsync();
-      } else {
-      setResults([]);
-      setShowResults("notfound");
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      setTimeout(() => {
-        setShowResults("none");
-        inputRef.current?.focus();
-      }, 1000);
-    }
+     } else {
+  setResults([]);
+  setShowResults("notfound");
+  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+  setQuery("");
+  Keyboard.dismiss();
+  inputRef.current?.blur();
+  setShowResults("none");      // ← directly set, no setTimeout
+}
 
     setIsSearching(false);
   }
