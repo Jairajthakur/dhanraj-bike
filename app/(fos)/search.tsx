@@ -97,10 +97,11 @@ export default function FosSearchScreen() {
       setResults(found);
 
       if (found.length >= 1) {
-        // Result(s) found — show card(s), wipe input, keyboard dismiss
         Haptics.selectionAsync();
         Keyboard.dismiss();
-        skipEffectRef.current = true; // prevent useEffect clearing results
+        skipEffectRef.current = true;
+        // Batch these together — results stay, query clears
+        setResults(found);
         setQuery("");
       } else {
         // Not found — wipe fast and refocus
@@ -110,7 +111,7 @@ export default function FosSearchScreen() {
           setResults([]);
           setHasSearched(false);
           inputRef.current?.focus();
-        }, 300);
+        }, 150);
       }
     } catch (e: any) {
       if (e?.name !== "AbortError") {
