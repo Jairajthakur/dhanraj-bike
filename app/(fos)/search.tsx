@@ -54,11 +54,6 @@ export default function FosSearchScreen() {
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
-  // Keep ref in sync so doSearch always has latest data
-  useEffect(() => {
-    allAllocationsRef.current = allAllocations;
-  }, [allAllocations]);
-
   // ─── Init: load cache then try to sync ───────────────────────────────────
   useEffect(() => {
     initCache();
@@ -67,6 +62,7 @@ export default function FosSearchScreen() {
   async function initCache() {
     // Load whatever is already cached
     const cached = await loadAllocationsFromCache();
+    allAllocationsRef.current = cached;
     setAllAllocations(cached);
 
     const meta = await getCacheMeta();
@@ -99,6 +95,7 @@ export default function FosSearchScreen() {
       if (!res.ok) throw new Error("Sync failed");
       const data: CachedAllocation[] = await res.json();
       await saveAllocationsToCache(data);
+      allAllocationsRef.current = data;
       setAllAllocations(data);
       setCacheCount(data.length);
       setLastSynced(formatSyncTime(Date.now()));
