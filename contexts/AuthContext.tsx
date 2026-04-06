@@ -1,6 +1,9 @@
 import React, { createContext, useContext, useState, useEffect, useMemo, ReactNode } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { apiRequest, getApiUrl, queryClient } from "@/lib/query-client";
 import { fetch } from "expo/fetch";
+
+const USER_STORAGE_KEY = "auth_user";
 
 export interface AuthUser {
   id: number;
@@ -27,6 +30,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   async function checkMe() {
+    // 1. Load cached user first — app works immediately, even offline
+    try {
+      const stored = await AsyncStorage.getItem(USER_STORAGE_KEY);
+      if (stored) {
+        setUser(JSON.parse(stored));
+      }
+    } catch {}
+
+    // 2. Try to verify session with server in background
     try {
       const baseUrl = getApiUrl();
       const url = new URL("/api/auth/me", baseUrl);
@@ -34,8 +46,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (res.ok) {
         const data = await res.json();
         setUser(data);
+        await AsyncStorage.setItem(USER_STORAGE_KEY, JSON.stringify(data));
       }
+      // If 401, server said session expired — only then clear user
+      if (res.status === 401) {
+        setUser(null);
+        await AsyncStorage.removeItem(USER_STORAGE_KEY);
+      }
+      // Any other error (network, 500, etc.) — keep cached user as-is
     } catch {
+      // Network error — stay logged in with cached user
     } finally {
       setIsLoading(false);
     }
@@ -46,12 +66,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const data = await res.json();
     queryClient.clear();
     setUser(data);
+    await AsyncStorage.setItem(USER_STORAGE_KEY, JSON.stringify(data));
   }
 
   async function logout() {
     await apiRequest("POST", "/api/auth/logout");
     queryClient.clear();
     setUser(null);
+    await AsyncStorage.removeItem(USER_STORAGE_KEY);
   }
 
   const value = useMemo(() => ({ user, isLoading, login, logout }), [user, isLoading]);
