@@ -124,7 +124,7 @@ export default function FosSearchScreen() {
 
     if (trimmed.length >= 3) {
       debounceRef.current = setTimeout(() => doSearch(trimmed), 600);
-    } else {
+    } else if (trimmed.length === 0 && showResults !== "found") {
       setResults([]);
       setShowResults("none");
       setIsSearching(false);
@@ -144,12 +144,14 @@ export default function FosSearchScreen() {
         ? searchByChassis(allAllocationsRef.current, q)
         : searchByReg(allAllocationsRef.current, q);
 
-    if (found.length >= 1) {
-      setResults(found);
-      setShowResults("found");
-      setQuery("");
-      Haptics.selectionAsync();
-    } else {
+      if (found.length >= 1) {
+        setResults(found);
+        setShowResults("found");
+        setQuery("");
+        Keyboard.dismiss();        // ← ADD THIS
+        inputRef.current?.blur();  // ← ADD THIS
+        Haptics.selectionAsync();
+      } else {
       setResults([]);
       setShowResults("notfound");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
