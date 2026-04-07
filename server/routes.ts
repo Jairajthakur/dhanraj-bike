@@ -15,6 +15,7 @@ import {
   searchAllocationByChassis,
   getAllocationById,
   getAllAllocations,
+  getAllRepoAllocations,
   bulkInsertAllocations,
   clearAllocations,
   getAllocationCount,
