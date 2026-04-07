@@ -6,7 +6,7 @@ export interface DbUser {
   id: number;
   username: string;
   password: string;
-  role: "admin" | "fos";
+  role: "admin" | "fos" | "repo";
   full_name: string;
   created_at: string;
 }
