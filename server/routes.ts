@@ -185,15 +185,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ↓ NEW: returns all allocations for offline caching on the FOS app
-  app.get("/api/allocations/all", requireAuth, async (req, res) => {
-    try {
-      const allocations = await getAllAllocations();
-      res.json(allocations);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
-    }
-  });
+app.get("/api/allocations/all", requireAuth, async (req, res) => {
+  try {
+    const role = req.session.role;
+    const allocations = role === "repo"
+      ? await getAllRepoAllocations()
+      : await getAllAllocations();
+    res.json(allocations);
+  } catch (e: any) {
+    res.status(500).json({ message: e.message });
+  }
+});
 
   app.get("/api/allocations/count", requireAuth, async (req, res) => {
     try {
