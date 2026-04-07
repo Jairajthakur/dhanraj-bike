@@ -8,7 +8,7 @@ const USER_STORAGE_KEY = "auth_user";
 export interface AuthUser {
   id: number;
   username: string;
-  role: "admin" | "fos";
+  role: "admin" | "fos" | "repo";
   fullName: string;
 }
 
