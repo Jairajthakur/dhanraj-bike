@@ -110,6 +110,11 @@ export async function getAllAllocations(): Promise<Allocation[]> {
   return result.rows;
 }
 
+export async function getAllRepoAllocations(): Promise<Allocation[]> {
+  const result = await pool.query("SELECT * FROM repo_allocations ORDER BY id");
+  return result.rows;
+}
+
 export async function bulkInsertAllocations(rows: Partial<Allocation>[]): Promise<number> {
   if (rows.length === 0) return 0;
   const client = await pool.connect();
