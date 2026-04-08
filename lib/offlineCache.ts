@@ -2,6 +2,8 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const CACHE_KEY = "fos_allocations_cache";
 const CACHE_META_KEY = "fos_allocations_meta";
+const REPO_CACHE_KEY = "repo_allocations_cache";
+const REPO_CACHE_META_KEY = "repo_allocations_meta";
 const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 export interface CachedAllocation {
@@ -30,60 +32,85 @@ export interface CachedAllocation {
 }
 
 export interface CacheMeta {
-  lastSynced: number; // timestamp
+  lastSynced: number;
   count: number;
 }
 
-/** Save all allocations to device storage */
+// ─── FOS Cache ────────────────────────────────────────────────────────────
+
 export async function saveAllocationsToCache(allocations: CachedAllocation[]): Promise<void> {
   await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(allocations));
   const meta: CacheMeta = { lastSynced: Date.now(), count: allocations.length };
   await AsyncStorage.setItem(CACHE_META_KEY, JSON.stringify(meta));
 }
 
-/** Load all cached allocations */
 export async function loadAllocationsFromCache(): Promise<CachedAllocation[]> {
   const raw = await AsyncStorage.getItem(CACHE_KEY);
   if (!raw) return [];
   return JSON.parse(raw) as CachedAllocation[];
 }
 
-/** Get cache metadata (last sync time, count) */
 export async function getCacheMeta(): Promise<CacheMeta | null> {
   const raw = await AsyncStorage.getItem(CACHE_META_KEY);
   if (!raw) return null;
   return JSON.parse(raw) as CacheMeta;
 }
 
-/** Returns true if cache exists and is still fresh (< 6 hours old) */
 export async function isCacheFresh(): Promise<boolean> {
   const meta = await getCacheMeta();
   if (!meta) return false;
   return Date.now() - meta.lastSynced < CACHE_TTL_MS;
 }
 
-/** Search cache by registration number (partial, case-insensitive) */
+// ─── Repo Cache ───────────────────────────────────────────────────────────
+
+export async function saveRepoAllocationsToCache(allocations: CachedAllocation[]): Promise<void> {
+  await AsyncStorage.setItem(REPO_CACHE_KEY, JSON.stringify(allocations));
+  const meta: CacheMeta = { lastSynced: Date.now(), count: allocations.length };
+  await AsyncStorage.setItem(REPO_CACHE_META_KEY, JSON.stringify(meta));
+}
+
+export async function loadRepoAllocationsFromCache(): Promise<CachedAllocation[]> {
+  const raw = await AsyncStorage.getItem(REPO_CACHE_KEY);
+  if (!raw) return [];
+  return JSON.parse(raw) as CachedAllocation[];
+}
+
+export async function getRepoCacheMeta(): Promise<CacheMeta | null> {
+  const raw = await AsyncStorage.getItem(REPO_CACHE_META_KEY);
+  if (!raw) return null;
+  return JSON.parse(raw) as CacheMeta;
+}
+
+export async function isRepoCacheFresh(): Promise<boolean> {
+  const meta = await getRepoCacheMeta();
+  if (!meta) return false;
+  return Date.now() - meta.lastSynced < CACHE_TTL_MS;
+}
+
+// ─── Search Helpers ───────────────────────────────────────────────────────
+
 export function searchByReg(allocations: CachedAllocation[], query: string): CachedAllocation[] {
   const q = query.toUpperCase().trim();
-  return allocations.filter((a) =>
-    a.registration_no?.toUpperCase().includes(q)
-  );
+  return allocations.filter((a) => a.registration_no?.toUpperCase().includes(q));
 }
 
-/** Search cache by chassis number (partial, case-insensitive) */
 export function searchByChassis(allocations: CachedAllocation[], query: string): CachedAllocation[] {
   const q = query.toUpperCase().trim();
-  return allocations.filter((a) =>
-    a.chassis_no?.toUpperCase().includes(q)
-  );
+  return allocations.filter((a) => a.chassis_no?.toUpperCase().includes(q));
 }
 
-/** Find a single allocation by ID from cache */
 export function findById(allocations: CachedAllocation[], id: number): CachedAllocation | null {
   return allocations.find((a) => a.id === id) ?? null;
 }
 
-/** Clear the cache (e.g. on logout) */
+// ─── Clear All Cache (on logout) ──────────────────────────────────────────
+
 export async function clearCache(): Promise<void> {
-  await AsyncStorage.multiRemove([CACHE_KEY, CACHE_META_KEY]);
+  await AsyncStorage.multiRemove([
+    CACHE_KEY,
+    CACHE_META_KEY,
+    REPO_CACHE_KEY,
+    REPO_CACHE_META_KEY,
+  ]);
 }
