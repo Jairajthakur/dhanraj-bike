@@ -22,9 +22,13 @@ import { fetch } from "expo/fetch";
 import {
   CachedAllocation,
   saveAllocationsToCache,
+  saveRepoAllocationsToCache,
   loadAllocationsFromCache,
+  loadRepoAllocationsFromCache,
   getCacheMeta,
+  getRepoCacheMeta,
   isCacheFresh,
+  isRepoCacheFresh,
   searchByReg,
   searchByChassis,
   clearCache,
@@ -59,54 +63,62 @@ export default function FosSearchScreen() {
     initCache();
   }, []);
 
-  async function initCache() {
-    // Load whatever is already cached
-    const cached = await loadAllocationsFromCache();
-    allAllocationsRef.current = cached;
-    setAllAllocations(cached);
+async function initCache() {
+  const isRepo = user?.role === "repo";
 
-    const meta = await getCacheMeta();
-    if (meta) {
-      setCacheCount(meta.count);
-      setLastSynced(formatSyncTime(meta.lastSynced));
-    }
+  const cached = isRepo
+    ? await loadRepoAllocationsFromCache()
+    : await loadAllocationsFromCache();
 
-    // Check network
-    const net = await Network.getNetworkStateAsync();
-    const online = net.isConnected === true;
-    setIsOnline(online);
+  allAllocationsRef.current = cached;
+  setAllAllocations(cached);
 
-    if (online) {
-      const fresh = await isCacheFresh();
-      if (!fresh) {
-        // Auto-sync if cache is stale or empty
-        await syncAllocations(true);
-      }
-    }
+  const meta = isRepo ? await getRepoCacheMeta() : await getCacheMeta();
+  if (meta) {
+    setCacheCount(meta.count);
+    setLastSynced(formatSyncTime(meta.lastSynced));
   }
 
-  // ─── Sync from server ─────────────────────────────────────────────────────
-  async function syncAllocations(silent = false) {
-    if (!silent) setIsSyncing(true);
-    try {
-      const baseUrl = getApiUrl();
-      const url = new URL("/api/allocations/all", baseUrl);
-      const res = await fetch(url.toString(), { credentials: "include" });
-      if (!res.ok) throw new Error("Sync failed");
-      const data: CachedAllocation[] = await res.json();
+  const net = await Network.getNetworkStateAsync();
+  const online = net.isConnected === true;
+  setIsOnline(online);
+
+  if (online) {
+    const fresh = isRepo ? await isRepoCacheFresh() : await isCacheFresh();
+    if (!fresh) {
+      await syncAllocations(true);
+    }
+  }
+}
+
+ async function syncAllocations(silent = false) {
+  const isRepo = user?.role === "repo";
+  if (!silent) setIsSyncing(true);
+  try {
+    const baseUrl = getApiUrl();
+    const endpoint = isRepo ? "/api/allocations/repo/all" : "/api/allocations/all";
+    const url = new URL(endpoint, baseUrl);
+    const res = await fetch(url.toString(), { credentials: "include" });
+    if (!res.ok) throw new Error("Sync failed");
+    const data: CachedAllocation[] = await res.json();
+
+    if (isRepo) {
+      await saveRepoAllocationsToCache(data);
+    } else {
       await saveAllocationsToCache(data);
-      allAllocationsRef.current = data;
-      setAllAllocations(data);
-      setCacheCount(data.length);
-      setLastSynced(formatSyncTime(Date.now()));
-      setIsOnline(true);
-    } catch {
-      // don't set offline here, sync may fail for other reasons
-    } finally {
-      if (!silent) setIsSyncing(false);
     }
-  }
 
+    allAllocationsRef.current = data;
+    setAllAllocations(data);
+    setCacheCount(data.length);
+    setLastSynced(formatSyncTime(Date.now()));
+    setIsOnline(true);
+  } catch {
+    // silent fail
+  } finally {
+    if (!silent) setIsSyncing(false);
+  }
+}
   function formatSyncTime(ts: number): string {
     const d = new Date(ts);
     const hh = d.getHours().toString().padStart(2, "0");
