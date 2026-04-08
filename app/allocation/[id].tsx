@@ -91,53 +91,56 @@ export default function AllocationDetailScreen() {
     loadAllocation();
   }, [id]);
 
-  async function loadAllocation() {
-    const numId = parseInt(id ?? "0", 10);
+async function loadAllocation() {
+  const numId = parseInt(id ?? "0", 10);
 
-    // Check network
-    const net = await Network.getNetworkStateAsync();
-    const online = net.isConnected === true;
+  const net = await Network.getNetworkStateAsync();
+  const online = net.isConnected === true;
 
-    if (online) {
-      // Try fetching live data
-      try {
-        const baseUrl = getApiUrl();
-        const url = new URL(`/api/allocations/${numId}`, baseUrl);
-        const res = await fetch(url.toString(), { credentials: "include" });
-        if (!res.ok) throw new Error("Not found");
-        const data: Allocation = await res.json();
-        setAllocation(data);
-        setIsOffline(false);
-        if (user?.role === "fos") sendNotification(data);
-        return;
-      } catch {
-        // Fall through to cache
-      }
-    }
-
-    // Offline or fetch failed → load from cache
-    setIsOffline(true);
+  if (online) {
     try {
-      const cached = await loadAllocationsFromCache();
-      const found = findById(cached, numId);
-      if (found) {
-        setAllocation(found);
-      } else {
-        Alert.alert(
-          "Not Found",
-          "This record is not in your offline cache. Connect to the internet to load it.",
-          [{ text: "Go Back", onPress: () => router.back() }]
-        );
-      }
-    } catch {
-      Alert.alert("Error", "Failed to load allocation data");
-      router.back();
-    } finally {
-      setIsLoading(false);
-    }
+      const baseUrl = getApiUrl();
+      const url = new URL(`/api/allocations/${numId}`, baseUrl);
 
+      const fetchPromise = fetch(url.toString(), { credentials: "include" });
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("timeout")), 5000)
+      );
+
+      const res = await Promise.race([fetchPromise, timeoutPromise]);
+      if (!res.ok) throw new Error("Not found");
+      const data: Allocation = await res.json();
+      setAllocation(data);
+      setIsOffline(false);
+      setIsLoading(false);
+      if (user?.role === "fos") sendNotification(data);
+      return;
+    } catch {
+      // Fall through to cache
+    }
+  }
+
+  // Offline or fetch failed → load from cache
+  setIsOffline(true);
+  try {
+    const cached = await loadAllocationsFromCache();
+    const found = findById(cached, numId);
+    if (found) {
+      setAllocation(found);
+    } else {
+      Alert.alert(
+        "Not Found",
+        "This record is not in your offline cache. Connect to the internet to load it.",
+        [{ text: "Go Back", onPress: () => router.back() }]
+      );
+    }
+  } catch {
+    Alert.alert("Error", "Failed to load allocation data");
+    router.back();
+  } finally {
     setIsLoading(false);
   }
+}
 
   async function sendNotification(data: Allocation) {
     if (notifSent) return;
