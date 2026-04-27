@@ -160,17 +160,13 @@ async function initCache() {
         setResults(found);
         setShowResults("found");
         setQuery("");
-        Keyboard.dismiss();        // ← ADD THIS
-        inputRef.current?.blur();  // ← ADD THIS
         Haptics.selectionAsync();
      } else {
   setResults([]);
   setShowResults("notfound");
   Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
   setQuery("");
-  Keyboard.dismiss();
-  inputRef.current?.blur();
-  setShowResults("none");      // ← directly set, no setTimeout
+  setShowResults("none");
 }
 
     setIsSearching(false);
@@ -193,6 +189,12 @@ async function initCache() {
 
   return (
     <View style={[styles.container, { paddingTop: topPad }]}>
+      {/* Agency name watermark background */}
+      <View style={styles.watermarkContainer} pointerEvents="none">
+        {Array.from({ length: 8 }).map((_, i) => (
+          <Text key={i} style={styles.watermarkText}>DHANRAJ BIKE</Text>
+        ))}
+      </View>
       {/* Top bar */}
       <View style={styles.topBar}>
         <View>
@@ -260,6 +262,10 @@ async function initCache() {
             autoCapitalize="none"
             autoCorrect={false}
             keyboardType="numeric"
+            autoFocus={true}
+            onBlur={() => {
+              setTimeout(() => inputRef.current?.focus(), 50);
+            }}
           />
           {(query.length > 0 || showResults !== "none") && (
             <Pressable onPress={clearSearch} style={styles.clearBtn}>
@@ -287,6 +293,7 @@ async function initCache() {
         </View>
       ) : showResults === "found" ? (
         <FlatList
+          keyboardShouldPersistTaps="always"
           data={results}
           keyExtractor={(item) => item.id.toString()}
           contentContainerStyle={[styles.resultsList, { paddingBottom: bottomPad + 80 }]}
@@ -355,6 +362,26 @@ async function initCache() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
+  watermarkContainer: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: "space-around",
+    alignItems: "center",
+    overflow: "hidden",
+    zIndex: 0,
+  },
+  watermarkText: {
+    fontSize: 36,
+    fontFamily: "Inter_700Bold",
+    color: "rgba(255,165,0,0.05)",
+    letterSpacing: 6,
+    transform: [{ rotate: "-30deg" }],
+    width: 400,
+    textAlign: "center",
+  },
   topBar: {
     flexDirection: "row",
     justifyContent: "space-between",
