@@ -113,14 +113,14 @@ export default function FosSearchScreen() {
     return `${day}/${mon} ${hh}:${mm}`;
   }
 
-  // ─── Debounced search from local cache ───────────────────────────────────
+  // ─── Auto search on every keystroke ─────────────────────────────────────
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
 
     const trimmed = query.trim();
 
-    if (trimmed.length >= 3) {
-      debounceRef.current = setTimeout(() => doSearch(trimmed), 600);
+    if (trimmed.length >= 2) {
+      debounceRef.current = setTimeout(() => doSearch(trimmed), 300);
     } else if (trimmed.length === 0 && showResults !== "found") {
       setResults([]);
       setShowResults("none");
@@ -133,7 +133,8 @@ export default function FosSearchScreen() {
   }, [query, searchType]);
 
   function doSearch(q: string) {
-    if (q.length < 3) return;
+    if (q.length < 2) return;
+    setQuery(""); // wipe input immediately
     setIsSearching(true);
 
     const found =
@@ -144,13 +145,11 @@ export default function FosSearchScreen() {
     if (found.length >= 1) {
       setResults(found);
       setShowResults("found");
-      setQuery("");
       Haptics.selectionAsync();
     } else {
       setResults([]);
       setShowResults("notfound");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      setQuery("");
       setShowResults("none");
     }
 
@@ -238,11 +237,8 @@ export default function FosSearchScreen() {
                 : "Enter registration number..."
             }
             placeholderTextColor={Colors.textMuted}
-            returnKeyType="search"
-            onSubmitEditing={() => {
-              if (debounceRef.current) clearTimeout(debounceRef.current);
-              doSearch(query.trim());
-            }}
+            returnKeyType="done"
+            onSubmitEditing={() => {}}
             autoCapitalize="none"
             autoCorrect={false}
             keyboardType="numeric"
