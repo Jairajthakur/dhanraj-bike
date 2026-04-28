@@ -113,14 +113,14 @@ export default function FosSearchScreen() {
     return `${day}/${mon} ${hh}:${mm}`;
   }
 
-  // ─── Auto search on every keystroke ─────────────────────────────────────
+  // ─── Debounced search from local cache ───────────────────────────────────
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
 
     const trimmed = query.trim();
 
-    if (trimmed.length >= 2) {
-      debounceRef.current = setTimeout(() => doSearch(trimmed), 300);
+    if (trimmed.length >= 3) {
+      debounceRef.current = setTimeout(() => doSearch(trimmed), 600);
     } else if (trimmed.length === 0 && showResults !== "found") {
       setResults([]);
       setShowResults("none");
@@ -133,8 +133,7 @@ export default function FosSearchScreen() {
   }, [query, searchType]);
 
   function doSearch(q: string) {
-    if (q.length < 2) return;
-    setQuery(""); // wipe input immediately
+    if (q.length < 3) return;
     setIsSearching(true);
 
     const found =
@@ -145,11 +144,17 @@ export default function FosSearchScreen() {
     if (found.length >= 1) {
       setResults(found);
       setShowResults("found");
+      setQuery("");
+      Keyboard.dismiss();
+      inputRef.current?.blur();
       Haptics.selectionAsync();
     } else {
       setResults([]);
       setShowResults("notfound");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      setQuery("");
+      Keyboard.dismiss();
+      inputRef.current?.blur();
       setShowResults("none");
     }
 
@@ -173,12 +178,7 @@ export default function FosSearchScreen() {
 
   return (
     <View style={[styles.container, { paddingTop: topPad }]}>
-      {/* Agency name watermark background */}
-      <View style={styles.watermarkContainer} pointerEvents="none">
-        {Array.from({ length: 8 }).map((_, i) => (
-          <Text key={i} style={styles.watermarkText}>DHANRAJ BIKE</Text>
-        ))}
-      </View>
+      {/* Top bar */}
       <View style={styles.topBar}>
         <View>
           <Text style={styles.welcomeText}>Welcome,</Text>
@@ -237,15 +237,14 @@ export default function FosSearchScreen() {
                 : "Enter registration number..."
             }
             placeholderTextColor={Colors.textMuted}
-            returnKeyType="done"
-            onSubmitEditing={() => {}}
+            returnKeyType="search"
+            onSubmitEditing={() => {
+              if (debounceRef.current) clearTimeout(debounceRef.current);
+              doSearch(query.trim());
+            }}
             autoCapitalize="none"
             autoCorrect={false}
             keyboardType="numeric"
-            autoFocus={true}
-            onBlur={() => {
-              setTimeout(() => inputRef.current?.focus(), 50);
-            }}
           />
           {(query.length > 0 || showResults !== "none") && (
             <Pressable onPress={clearSearch} style={styles.clearBtn}>
@@ -273,7 +272,6 @@ export default function FosSearchScreen() {
         </View>
       ) : showResults === "found" ? (
         <FlatList
-          keyboardShouldPersistTaps="always"
           data={results}
           keyExtractor={(item) => item.id.toString()}
           contentContainerStyle={[styles.resultsList, { paddingBottom: bottomPad + 80 }]}
@@ -342,26 +340,6 @@ export default function FosSearchScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
-  watermarkContainer: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    justifyContent: "space-around",
-    alignItems: "center",
-    overflow: "hidden",
-    zIndex: 0,
-  },
-  watermarkText: {
-    fontSize: 36,
-    fontFamily: "Inter_700Bold",
-    color: "rgba(255,165,0,0.05)",
-    letterSpacing: 6,
-    transform: [{ rotate: "-30deg" }],
-    width: 400,
-    textAlign: "center",
-  },
   topBar: {
     flexDirection: "row",
     justifyContent: "space-between",
