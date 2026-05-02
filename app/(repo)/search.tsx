@@ -63,13 +63,15 @@ function SearchIcon({ size = 22 }: { size?: number }) {
 function NumericKeyboard({
   onKey,
   locked,
+  bottomPad = 8,
 }: {
   onKey: (k: string) => void;
   locked: boolean;
+  bottomPad?: number;
 }) {
   const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "back"];
   return (
-    <View style={kbStyles.grid}>
+    <View style={[kbStyles.grid, { paddingBottom: bottomPad + 8 }]}>
       {keys.map((k) => (
         <Pressable
           key={k}
@@ -103,7 +105,6 @@ const kbStyles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     paddingHorizontal: 12,
-    paddingBottom: 8,
     gap: 8,
   },
   key: {
@@ -428,7 +429,7 @@ export default function RepoSearchScreen() {
       )}
 
       {/* Custom Keyboard — always locked to bottom */}
-      <NumericKeyboard onKey={handleKey} locked={keyboardLocked} />
+      <NumericKeyboard onKey={handleKey} locked={keyboardLocked} bottomPad={bottomPad} />
     </View>
   );
 }
