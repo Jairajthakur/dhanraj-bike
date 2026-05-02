@@ -12,6 +12,7 @@ import {
 import Svg, { Circle, Line } from "react-native-svg";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import Svg, { Path, Ellipse, RadialGradient, Stop, Defs, Text as SvgText } from "react-native-svg";
 import { router } from "expo-router";
 import * as Haptics from "expo-haptics";
 import * as Network from "expo-network";
@@ -382,14 +383,47 @@ export default function RepoSearchScreen() {
         </View>
       ) : (
         <View style={styles.hintContainer}>
-          <View style={styles.hintIcon}>
-            <Ionicons name="bicycle-outline" size={40} color={Colors.primary} />
+          <Svg width={110} height={114} viewBox="0 0 110 114">
+            <Defs>
+              <RadialGradient id="glow" cx="50%" cy="50%" r="50%">
+                <Stop offset="0%" stopColor="#D4950F" stopOpacity="0.25" />
+                <Stop offset="100%" stopColor="#D4950F" stopOpacity="0" />
+              </RadialGradient>
+            </Defs>
+            <Ellipse cx="55" cy="57" rx="50" ry="50" fill="url(#glow)" />
+            <Path
+              d="M55 8 L92 24 L92 58 Q92 86 55 106 Q18 86 18 58 L18 24 Z"
+              fill="#1A1200"
+              stroke="#D4950F"
+              strokeWidth="2.5"
+            />
+            <Path
+              d="M55 18 L84 32 L84 58 Q84 78 55 94 Q26 78 26 58 L26 32 Z"
+              fill="none"
+              stroke="#D4950F"
+              strokeWidth="0.8"
+              opacity="0.35"
+            />
+            <SvgText
+              x="55"
+              y="70"
+              textAnchor="middle"
+              fontSize="32"
+              fontWeight="900"
+              fill="#D4950F"
+              fontFamily="Arial"
+            >
+              D
+            </SvgText>
+          </Svg>
+          <Text style={styles.hintBrand}>DHANRAJ ENTERPRISES</Text>
+          <View style={styles.hintDivider}>
+            <View style={styles.hintLine} />
+            <View style={styles.hintDot} />
+            <View style={styles.hintLine} />
           </View>
-          <Text style={styles.hintTitle}>Search Allocations</Text>
           <Text style={styles.hintSubtitle}>
-            {searchType === "chassis"
-              ? "Enter a chassis number to find customer details"
-              : "Enter a vehicle registration number to find customer details"}
+            Enter a number above to find customer details
           </Text>
         </View>
       )}
@@ -510,15 +544,17 @@ const styles = StyleSheet.create({
   posRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   posText: { fontFamily: "Inter_500Medium", fontSize: 13, color: Colors.textMuted },
   hintContainer: {
-    flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 32, gap: 14,
+    flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 32, gap: 10,
   },
-  hintIcon: {
-    width: 80, height: 80, borderRadius: 22, backgroundColor: "#1A1400",
-    alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: Colors.primaryDark,
+  hintBrand: {
+    fontFamily: "Inter_700Bold", fontSize: 13, color: Colors.primary,
+    letterSpacing: 4, marginTop: 6,
   },
-  hintTitle: { fontFamily: "Inter_700Bold", fontSize: 22, color: Colors.textPrimary },
+  hintDivider: { flexDirection: "row", alignItems: "center", gap: 6 },
+  hintLine: { width: 22, height: 1, backgroundColor: Colors.border },
+  hintDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: Colors.primary },
   hintSubtitle: {
-    fontFamily: "Inter_400Regular", fontSize: 15, color: Colors.textSecondary,
-    textAlign: "center", lineHeight: 22,
+    fontFamily: "Inter_400Regular", fontSize: 13, color: Colors.textSecondary,
+    textAlign: "center", lineHeight: 20,
   },
 });
