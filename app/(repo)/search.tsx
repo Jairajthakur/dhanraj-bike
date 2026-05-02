@@ -21,10 +21,10 @@ import { getApiUrl } from "@/lib/query-client";
 import { fetch } from "expo/fetch";
 import {
   CachedAllocation,
-  saveAllocationsToCache,
-  loadAllocationsFromCache,
-  getCacheMeta,
-  isCacheFresh,
+  saveRepoAllocationsToCache,
+  loadRepoAllocationsFromCache,
+  getRepoCacheMeta,
+  isRepoCacheFresh,
   searchByReg,
   searchByChassis,
   clearCache,
@@ -153,10 +153,10 @@ export default function RepoSearchScreen() {
   useEffect(() => { initCache(); }, []);
 
   async function initCache() {
-    const cached = await loadAllocationsFromCache();
+    const cached = await loadRepoAllocationsFromCache();
     allAllocationsRef.current = cached;
 
-    const meta = await getCacheMeta();
+    const meta = await getRepoCacheMeta();
     if (meta) setCacheCount(meta.count);
 
     const net = await Network.getNetworkStateAsync();
@@ -164,7 +164,7 @@ export default function RepoSearchScreen() {
     setIsOnline(online);
 
     if (online) {
-      const fresh = await isCacheFresh();
+      const fresh = await isRepoCacheFresh();
       if (!fresh) await syncAllocations(true);
     }
   }
@@ -176,7 +176,7 @@ export default function RepoSearchScreen() {
       const res = await fetch(url.toString(), { credentials: "include" });
       if (!res.ok) throw new Error("Sync failed");
       const data: CachedAllocation[] = await res.json();
-      await saveAllocationsToCache(data);
+      await saveRepoAllocationsToCache(data);
       allAllocationsRef.current = data;
       setCacheCount(data.length);
       setIsOnline(true);
@@ -347,7 +347,7 @@ export default function RepoSearchScreen() {
                 Haptics.selectionAsync();
                 setResults([]);
                 setShowResults("none");
-                router.push({ pathname: "/allocation/[id]", params: { id: item.id.toString() } });
+                router.push({ pathname: "/repo-allocation/[id]", params: { id: item.id.toString() } });
               }}
             >
               <View style={styles.resultCardTop}>
