@@ -9,10 +9,9 @@ import {
   ActivityIndicator,
   Keyboard,
 } from "react-native";
-import Svg, { Circle, Line, Path } from "react-native-svg";
+import Svg, { Circle, Line, Path, Ellipse, RadialGradient, Stop, Defs, Text as SvgText } from "react-native-svg";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import Svg, { Path, Ellipse, RadialGradient, Stop, Defs, Text as SvgText } from "react-native-svg";
 import { router } from "expo-router";
 import * as Haptics from "expo-haptics";
 import * as Network from "expo-network";
