@@ -1,15 +1,15 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
   View,
   Text,
   StyleSheet,
-  TextInput,
   Pressable,
   FlatList,
   Platform,
   ActivityIndicator,
   Keyboard,
 } from "react-native";
+import Svg, { Circle, Line } from "react-native-svg";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
@@ -30,7 +30,108 @@ import {
   clearCache,
 } from "@/lib/offlineCache";
 
-export default function FosSearchScreen() {
+// ─── Max digit limits ─────────────────────────────────────────────────────────
+const MAX_DIGITS = { reg: 4, chassis: 5 } as const;
+
+// ─── Custom golden search icon ────────────────────────────────────────────────
+function SearchIcon({ size = 22 }: { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Circle
+        cx="10.5"
+        cy="10.5"
+        r="6.5"
+        stroke="#D4950F"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <Line
+        x1="15.5"
+        y1="15.5"
+        x2="21"
+        y2="21"
+        stroke="#D4950F"
+        strokeWidth="2.2"
+        strokeLinecap="round"
+      />
+    </Svg>
+  );
+}
+
+// ─── Custom Numeric Keyboard ──────────────────────────────────────────────────
+function NumericKeyboard({
+  onKey,
+  locked,
+}: {
+  onKey: (k: string) => void;
+  locked: boolean;
+}) {
+  const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "back"];
+  return (
+    <View style={kbStyles.grid}>
+      {keys.map((k) => (
+        <Pressable
+          key={k}
+          style={({ pressed }) => [
+            kbStyles.key,
+            locked && kbStyles.keyDisabled,
+            pressed && !locked && kbStyles.keyPressed,
+          ]}
+          onPress={() => !locked && onKey(k)}
+          disabled={locked}
+        >
+          {k === "back" ? (
+            <Ionicons
+              name="backspace-outline"
+              size={20}
+              color={locked ? Colors.textMuted + "55" : Colors.textPrimary}
+            />
+          ) : (
+            <Text style={[kbStyles.keyText, locked && kbStyles.keyTextDisabled]}>
+              {k}
+            </Text>
+          )}
+        </Pressable>
+      ))}
+    </View>
+  );
+}
+
+const kbStyles = StyleSheet.create({
+  grid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    paddingHorizontal: 12,
+    paddingBottom: 8,
+    gap: 8,
+  },
+  key: {
+    width: "30%",
+    flexGrow: 1,
+    paddingVertical: 14,
+    backgroundColor: Colors.surface,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  keyPressed: {
+    backgroundColor: "#2a2200",
+    borderColor: Colors.primary,
+  },
+  keyDisabled: { opacity: 0.35 },
+  keyText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 18,
+    color: Colors.textPrimary,
+  },
+  keyTextDisabled: { color: Colors.textMuted },
+});
+
+// ─── Main Screen ──────────────────────────────────────────────────────────────
+export default function RepoSearchScreen() {
   const insets = useSafeAreaInsets();
   const { user, logout } = useAuth();
 
@@ -39,36 +140,24 @@ export default function FosSearchScreen() {
   const [results, setResults] = useState<CachedAllocation[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [showResults, setShowResults] = useState<"none" | "found" | "notfound">("none");
+  const [keyboardLocked, setKeyboardLocked] = useState(false);
 
-  // Offline / cache state
-  const [allAllocations, setAllAllocations] = useState<CachedAllocation[]>([]);
   const allAllocationsRef = useRef<CachedAllocation[]>([]);
-  const [isSyncing, setIsSyncing] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
-  const [lastSynced, setLastSynced] = useState<string | null>(null);
   const [cacheCount, setCacheCount] = useState(0);
-
-  const inputRef = useRef<TextInput>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
+  const maxDigits = MAX_DIGITS[searchType];
 
-  // ─── Init: load cache then try to sync ───────────────────────────────────
-  useEffect(() => {
-    initCache();
-  }, []);
+  useEffect(() => { initCache(); }, []);
 
   async function initCache() {
     const cached = await loadAllocationsFromCache();
     allAllocationsRef.current = cached;
-    setAllAllocations(cached);
 
     const meta = await getCacheMeta();
-    if (meta) {
-      setCacheCount(meta.count);
-      setLastSynced(formatSyncTime(meta.lastSynced));
-    }
+    if (meta) setCacheCount(meta.count);
 
     const net = await Network.getNetworkStateAsync();
     const online = net.isConnected === true;
@@ -76,15 +165,11 @@ export default function FosSearchScreen() {
 
     if (online) {
       const fresh = await isCacheFresh();
-      if (!fresh) {
-        await syncAllocations(true);
-      }
+      if (!fresh) await syncAllocations(true);
     }
   }
 
-  // ─── Sync from server ─────────────────────────────────────────────────────
   async function syncAllocations(silent = false) {
-    if (!silent) setIsSyncing(true);
     try {
       const baseUrl = getApiUrl();
       const url = new URL("/api/allocations/all", baseUrl);
@@ -93,47 +178,37 @@ export default function FosSearchScreen() {
       const data: CachedAllocation[] = await res.json();
       await saveAllocationsToCache(data);
       allAllocationsRef.current = data;
-      setAllAllocations(data);
       setCacheCount(data.length);
-      setLastSynced(formatSyncTime(Date.now()));
       setIsOnline(true);
-    } catch {
-      // don't set offline here, sync may fail for other reasons
-    } finally {
-      if (!silent) setIsSyncing(false);
-    }
+    } catch { /* silent fail */ }
   }
 
-  function formatSyncTime(ts: number): string {
-    const d = new Date(ts);
-    const hh = d.getHours().toString().padStart(2, "0");
-    const mm = d.getMinutes().toString().padStart(2, "0");
-    const day = d.getDate().toString().padStart(2, "0");
-    const mon = (d.getMonth() + 1).toString().padStart(2, "0");
-    return `${day}/${mon} ${hh}:${mm}`;
-  }
+  // ─── Key press: lock at max digits, auto-search, auto-wipe ───────────────
+  const handleKey = useCallback(
+    (k: string) => {
+      if (keyboardLocked) return;
 
-  // ─── Debounced search from local cache ───────────────────────────────────
-  useEffect(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
+      if (k === "back") {
+        setQuery((prev) => prev.slice(0, -1));
+        return;
+      }
 
-    const trimmed = query.trim();
-
-    if (trimmed.length >= 3) {
-      debounceRef.current = setTimeout(() => doSearch(trimmed), 600);
-    } else if (trimmed.length === 0 && showResults !== "found") {
-      setResults([]);
-      setShowResults("none");
-      setIsSearching(false);
-    }
-
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
-  }, [query, searchType]);
+      setQuery((prev) => {
+        const next = prev + k;
+        if (next.length >= maxDigits) {
+          setKeyboardLocked(true);
+          Keyboard.dismiss();
+          setTimeout(() => doSearch(next), 50);
+          return next;
+        }
+        return next;
+      });
+    },
+    [keyboardLocked, maxDigits, searchType]
+  );
 
   function doSearch(q: string) {
-    if (q.length < 3) return;
+    if (q.length < 1) return;
     setIsSearching(true);
 
     const found =
@@ -141,24 +216,20 @@ export default function FosSearchScreen() {
         ? searchByChassis(allAllocationsRef.current, q)
         : searchByReg(allAllocationsRef.current, q);
 
+    // Wipe and unlock immediately
+    setQuery("");
+    setKeyboardLocked(false);
+    setIsSearching(false);
+
     if (found.length >= 1) {
       setResults(found);
       setShowResults("found");
-      setQuery("");
-      Keyboard.dismiss();
-      inputRef.current?.blur();
       Haptics.selectionAsync();
     } else {
       setResults([]);
       setShowResults("notfound");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      setQuery("");
-      Keyboard.dismiss();
-      inputRef.current?.blur();
-      setShowResults("none");
     }
-
-    setIsSearching(false);
   }
 
   function clearSearch() {
@@ -166,6 +237,7 @@ export default function FosSearchScreen() {
     setResults([]);
     setShowResults("none");
     setIsSearching(false);
+    setKeyboardLocked(false);
   }
 
   function switchType(type: "reg" | "chassis") {
@@ -174,6 +246,7 @@ export default function FosSearchScreen() {
     setResults([]);
     setShowResults("none");
     setIsSearching(false);
+    setKeyboardLocked(false);
   }
 
   return (
@@ -196,7 +269,7 @@ export default function FosSearchScreen() {
         </Pressable>
       </View>
 
-      {/* Search section */}
+      {/* Toggle + Search */}
       <View style={styles.searchSection}>
         <View style={styles.toggleRow}>
           <Pressable
@@ -217,41 +290,27 @@ export default function FosSearchScreen() {
           </Pressable>
         </View>
 
-        <View style={styles.searchBox}>
-          <Ionicons
-            name={isSearching ? "hourglass-outline" : "search"}
-            size={20}
-            color={Colors.primary}
-            style={styles.searchIcon}
-          />
-          <TextInput
-            ref={inputRef}
-            style={styles.searchInput}
-            value={query}
-            onChangeText={(text) => {
-              setQuery(text.toUpperCase());
-            }}
-            placeholder={
-              searchType === "chassis"
-                ? "Enter chassis number..."
-                : "Enter registration number..."
-            }
-            placeholderTextColor={Colors.textMuted}
-            returnKeyType="search"
-            onSubmitEditing={() => {
-              if (debounceRef.current) clearTimeout(debounceRef.current);
-              doSearch(query.trim());
-            }}
-            autoCapitalize="none"
-            autoCorrect={false}
-            keyboardType="numeric"
-          />
+        <Pressable style={styles.searchBox} onPress={clearSearch}>
+          <SearchIcon size={22} />
+          <Text
+            style={[
+              styles.searchDisplay,
+              query.length === 0 && styles.searchPlaceholder,
+            ]}
+            numberOfLines={1}
+          >
+            {query.length > 0
+              ? query
+              : searchType === "chassis"
+              ? "Enter chassis number..."
+              : "Enter registration number..."}
+          </Text>
           {(query.length > 0 || showResults !== "none") && (
             <Pressable onPress={clearSearch} style={styles.clearBtn}>
               <Ionicons name="close-circle" size={18} color={Colors.textMuted} />
             </Pressable>
           )}
-        </View>
+        </Pressable>
       </View>
 
       {/* No cache warning */}
@@ -334,6 +393,9 @@ export default function FosSearchScreen() {
           </Text>
         </View>
       )}
+
+      {/* Custom Keyboard — always locked to bottom */}
+      <NumericKeyboard onKey={handleKey} locked={keyboardLocked} />
     </View>
   );
 }
@@ -371,12 +433,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.red,
   },
-  noCacheText: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 13,
-    color: Colors.red,
-    flex: 1,
-  },
+  noCacheText: { fontFamily: "Inter_500Medium", fontSize: 13, color: Colors.red, flex: 1 },
   searchSection: { paddingHorizontal: 20, gap: 12, marginBottom: 16 },
   toggleRow: {
     flexDirection: "row",
@@ -400,71 +457,47 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: Colors.primary,
     gap: 10,
+    paddingVertical: 14,
   },
-  searchIcon: {},
-  searchInput: {
+  searchDisplay: {
     flex: 1,
     fontFamily: "Inter_500Medium",
     fontSize: 17,
     color: Colors.textPrimary,
-    paddingVertical: 16,
+    letterSpacing: 2,
+  },
+  searchPlaceholder: {
+    color: Colors.textMuted,
     letterSpacing: 0.5,
+    fontSize: 15,
   },
   clearBtn: { padding: 4 },
   loadingContainer: { flex: 1, alignItems: "center", justifyContent: "center", gap: 16 },
   loadingText: { fontFamily: "Inter_400Regular", fontSize: 15, color: Colors.textSecondary },
   notFoundContainer: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 32,
-    gap: 14,
+    flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 32, gap: 14,
   },
   notFoundIcon: {
-    width: 80,
-    height: 80,
-    borderRadius: 22,
-    backgroundColor: Colors.surface,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: Colors.border,
+    width: 80, height: 80, borderRadius: 22, backgroundColor: Colors.surface,
+    alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: Colors.border,
   },
   notFoundTitle: { fontFamily: "Inter_700Bold", fontSize: 24, color: Colors.textPrimary },
   notFoundSubtitle: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 15,
-    color: Colors.textSecondary,
-    textAlign: "center",
-    lineHeight: 22,
+    fontFamily: "Inter_400Regular", fontSize: 15, color: Colors.textSecondary,
+    textAlign: "center", lineHeight: 22,
   },
   resultsList: { paddingHorizontal: 20, gap: 12 },
   resultsCount: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 13,
-    color: Colors.textSecondary,
-    marginBottom: 4,
+    fontFamily: "Inter_500Medium", fontSize: 13, color: Colors.textSecondary, marginBottom: 4,
   },
   resultCard: {
-    backgroundColor: Colors.surface,
-    borderRadius: 16,
-    padding: 16,
-    gap: 8,
-    borderWidth: 1,
-    borderColor: Colors.border,
+    backgroundColor: Colors.surface, borderRadius: 16, padding: 16,
+    gap: 8, borderWidth: 1, borderColor: Colors.border,
   },
-  resultCardTop: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
+  resultCardTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   regNoContainer: {
-    backgroundColor: "#1A1400",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: Colors.primaryDark,
+    backgroundColor: "#1A1400", paddingHorizontal: 12, paddingVertical: 6,
+    borderRadius: 8, borderWidth: 1, borderColor: Colors.primaryDark,
   },
   regNo: { fontFamily: "Inter_700Bold", fontSize: 15, color: Colors.primary, letterSpacing: 1 },
   bktBadge: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8 },
@@ -472,36 +505,20 @@ const styles = StyleSheet.create({
   customerName: { fontFamily: "Inter_700Bold", fontSize: 17, color: Colors.textPrimary },
   assetMake: { fontFamily: "Inter_400Regular", fontSize: 13, color: Colors.textSecondary },
   resultCardBottom: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginTop: 4,
+    flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 4,
   },
   posRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   posText: { fontFamily: "Inter_500Medium", fontSize: 13, color: Colors.textMuted },
   hintContainer: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 32,
-    gap: 14,
+    flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 32, gap: 14,
   },
   hintIcon: {
-    width: 80,
-    height: 80,
-    borderRadius: 22,
-    backgroundColor: "#1A1400",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: Colors.primaryDark,
+    width: 80, height: 80, borderRadius: 22, backgroundColor: "#1A1400",
+    alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: Colors.primaryDark,
   },
   hintTitle: { fontFamily: "Inter_700Bold", fontSize: 22, color: Colors.textPrimary },
   hintSubtitle: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 15,
-    color: Colors.textSecondary,
-    textAlign: "center",
-    lineHeight: 22,
+    fontFamily: "Inter_400Regular", fontSize: 15, color: Colors.textSecondary,
+    textAlign: "center", lineHeight: 22,
   },
 });
