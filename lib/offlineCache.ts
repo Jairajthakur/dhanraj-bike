@@ -4,6 +4,8 @@ const CACHE_KEY = "fos_allocations_cache";
 const CACHE_META_KEY = "fos_allocations_meta";
 const REPO_CACHE_KEY = "repo_allocations_cache";
 const REPO_CACHE_META_KEY = "repo_allocations_meta";
+// Stores the server-side dataVersion timestamps so we can detect new uploads
+const SERVER_VERSION_KEY = "server_data_version";
 const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 export interface CachedAllocation {
@@ -36,7 +38,24 @@ export interface CacheMeta {
   count: number;
 }
 
-// ─── FOS Cache ────────────────────────────────────────────────────────────
+export interface ServerDataVersion {
+  alloc: number;
+  repo: number;
+}
+
+// ─── Server version helpers ───────────────────────────────────────────────────
+
+export async function getStoredServerVersion(): Promise<ServerDataVersion | null> {
+  const raw = await AsyncStorage.getItem(SERVER_VERSION_KEY);
+  if (!raw) return null;
+  return JSON.parse(raw) as ServerDataVersion;
+}
+
+export async function saveServerVersion(v: ServerDataVersion): Promise<void> {
+  await AsyncStorage.setItem(SERVER_VERSION_KEY, JSON.stringify(v));
+}
+
+// ─── FOS Cache ────────────────────────────────────────────────────────────────
 
 export async function saveAllocationsToCache(allocations: CachedAllocation[]): Promise<void> {
   await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(allocations));
@@ -62,7 +81,7 @@ export async function isCacheFresh(): Promise<boolean> {
   return Date.now() - meta.lastSynced < CACHE_TTL_MS;
 }
 
-// ─── Repo Cache ───────────────────────────────────────────────────────────
+// ─── Repo Cache ───────────────────────────────────────────────────────────────
 
 export async function saveRepoAllocationsToCache(allocations: CachedAllocation[]): Promise<void> {
   await AsyncStorage.setItem(REPO_CACHE_KEY, JSON.stringify(allocations));
@@ -88,7 +107,7 @@ export async function isRepoCacheFresh(): Promise<boolean> {
   return Date.now() - meta.lastSynced < CACHE_TTL_MS;
 }
 
-// ─── Search Helpers ───────────────────────────────────────────────────────
+// ─── Search Helpers ───────────────────────────────────────────────────────────
 
 export function searchByReg(allocations: CachedAllocation[], query: string): CachedAllocation[] {
   const q = query.toUpperCase().trim();
@@ -104,7 +123,7 @@ export function findById(allocations: CachedAllocation[], id: number): CachedAll
   return allocations.find((a) => a.id === id) ?? null;
 }
 
-// ─── Clear All Cache (on logout) ──────────────────────────────────────────
+// ─── Clear All Cache (on logout) ─────────────────────────────────────────────
 
 export async function clearCache(): Promise<void> {
   await AsyncStorage.multiRemove([
@@ -112,5 +131,6 @@ export async function clearCache(): Promise<void> {
     CACHE_META_KEY,
     REPO_CACHE_KEY,
     REPO_CACHE_META_KEY,
+    SERVER_VERSION_KEY,
   ]);
 }
