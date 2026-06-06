@@ -8,6 +8,8 @@ import {
   Platform,
   ActivityIndicator,
   Keyboard,
+  AppState,
+  AppStateStatus,
 } from "react-native";
 import Svg, { Circle, Line, Path, Ellipse, RadialGradient, Stop, Defs, Text as SvgText } from "react-native-svg";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -32,6 +34,8 @@ import {
   searchByReg,
   searchByChassis,
   clearCache,
+  getStoredServerVersion,
+  saveServerVersion,
 } from "@/lib/offlineCache";
 
 // ─── Max digit limits ─────────────────────────────────────────────────────────
@@ -162,6 +166,37 @@ export default function FosSearchScreen() {
   const maxDigits = MAX_DIGITS[searchType];
 
   useEffect(() => { initCache(); }, []);
+
+  // ── Auto-refresh when admin uploads new data ────────────────────────────────
+  // When the app comes to foreground, check if the server's data version changed.
+  // If it has, silently re-sync the cache so searches are immediately up-to-date.
+  useEffect(() => {
+    const handleAppState = async (nextState: AppStateStatus) => {
+      if (nextState !== "active") return;
+      const net = await Network.getNetworkStateAsync();
+      if (!net.isConnected) return;
+      try {
+        const isRepo = user?.role === "repo";
+        const baseUrl = getApiUrl();
+        const res = await fetch(new URL("/api/data-version", baseUrl).toString(), {
+          credentials: "include",
+        });
+        if (!res.ok) return;
+        const serverVer = await res.json();
+        const storedVer = await getStoredServerVersion();
+        const relevantChanged = isRepo
+          ? !storedVer || serverVer.repo !== storedVer.repo
+          : !storedVer || serverVer.alloc !== storedVer.alloc;
+        if (relevantChanged) {
+          await saveServerVersion(serverVer);
+          await syncAllocations(true); // silent background sync
+        }
+      } catch { /* ignore network errors */ }
+    };
+
+    const sub = AppState.addEventListener("change", handleAppState);
+    return () => sub.remove();
+  }, [user?.role]);
 
   async function initCache() {
     const isRepo = user?.role === "repo";
