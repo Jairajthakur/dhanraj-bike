@@ -8,6 +8,8 @@ import {
   Platform,
   ActivityIndicator,
   Keyboard,
+  AppState,
+  AppStateStatus,
 } from "react-native";
 import Svg, { Circle, Line, Path, Ellipse, RadialGradient, Stop, Defs, Text as SvgText } from "react-native-svg";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -28,6 +30,8 @@ import {
   searchByReg,
   searchByChassis,
   clearCache,
+  getStoredServerVersion,
+  saveServerVersion,
 } from "@/lib/offlineCache";
 
 // ─── Max digit limits ─────────────────────────────────────────────────────────
@@ -152,6 +156,31 @@ export default function RepoSearchScreen() {
   const maxDigits = MAX_DIGITS[searchType];
 
   useEffect(() => { initCache(); }, []);
+
+  // ── Auto-refresh when admin uploads new repo data ──────────────────────────
+  useEffect(() => {
+    const handleAppState = async (nextState: AppStateStatus) => {
+      if (nextState !== "active") return;
+      const net = await Network.getNetworkStateAsync();
+      if (!net.isConnected) return;
+      try {
+        const baseUrl = getApiUrl();
+        const res = await fetch(new URL("/api/data-version", baseUrl).toString(), {
+          credentials: "include",
+        });
+        if (!res.ok) return;
+        const serverVer = await res.json();
+        const storedVer = await getStoredServerVersion();
+        if (!storedVer || serverVer.repo !== storedVer.repo) {
+          await saveServerVersion(serverVer);
+          await syncAllocations(true);
+        }
+      } catch { /* ignore network errors */ }
+    };
+
+    const sub = AppState.addEventListener("change", handleAppState);
+    return () => sub.remove();
+  }, []);
 
   async function initCache() {
     const cached = await loadRepoAllocationsFromCache();
