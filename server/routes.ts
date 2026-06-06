@@ -41,6 +41,10 @@ declare module "express-session" {
   }
 }
 
+
+// ── In-memory data version tracker ───────────────────────────────────────────
+// Incremented on every allocation upload so FOS/Repo devices know to re-sync.
+let dataVersion = { alloc: Date.now(), repo: Date.now() };
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -252,6 +256,7 @@ app.get("/api/allocations/all", requireAuth, async (req, res) => {
       const shouldReplace = req.body.replace === "true";
       if (shouldReplace) await clearAllocations();
       const inserted = await bulkInsertAllocations(mapped);
+      dataVersion.alloc = Date.now();
       res.json({ inserted, total: mapped.length });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -328,6 +333,7 @@ app.get("/api/allocations/all", requireAuth, async (req, res) => {
       const shouldReplace = req.body.replace === "true";
       if (shouldReplace) await clearRepoAllocations();
       const inserted = await bulkInsertRepoAllocations(mapped);
+      dataVersion.repo = Date.now();
       res.json({ inserted, total: mapped.length });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -391,6 +397,12 @@ app.get("/api/allocations/all", requireAuth, async (req, res) => {
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }
+  });
+
+
+  // Public endpoint — FOS/Repo devices poll this on foreground to detect new uploads
+  app.get("/api/data-version", requireAuth, (_req, res) => {
+    res.json({ alloc: dataVersion.alloc, repo: dataVersion.repo });
   });
 
   const httpServer = createServer(app);
