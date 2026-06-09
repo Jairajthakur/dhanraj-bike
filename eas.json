@@ -10,12 +10,12 @@
     "preview": {
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_DOMAIN": "dhanraj-bike-production.up.railway.app"
+        "EXPO_PUBLIC_DOMAIN": "https://app.dhanraj.co.in"
       }
     },
     "production": {
       "env": {
-        "EXPO_PUBLIC_DOMAIN": "dhanraj-bike-production.up.railway.app"
+        "EXPO_PUBLIC_DOMAIN": "https://app.dhanraj.co.in"
       }
     }
   },
