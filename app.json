@@ -33,7 +33,7 @@
       [
         "expo-router",
         {
-          "origin": "https://dhanraj-production.up.railway.app"
+          "origin": "https://app.dhanraj.co.in"
         }
       ],
       "expo-font",
@@ -52,7 +52,7 @@
     },
     "extra": {
       "router": {
-        "origin": "https://dhanraj-production.up.railway.app"
+        "origin": "https://app.dhanraj.co.in"
       },
       "eas": {
         "projectId": "7884b502-c4a6-425e-8a00-5c64e1d39747"
