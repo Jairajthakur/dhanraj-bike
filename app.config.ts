@@ -5,11 +5,11 @@ export default ({ config }: ConfigContext): ExpoConfig => {
   const replitDomain = process.env.REPLIT_DEV_DOMAIN;
 
   const apiUrl = process.env.EXPO_PUBLIC_API_URL || 
-    (replitDomain ? `https://${replitDomain}` : "https://dhanraj-bike-production.up.railway.app");
+    (replitDomain ? `https://${replitDomain}` : "https://app.dhanraj.co.in");
 
   const origin = replitDomain
     ? `https://${replitDomain}:3001`
-    : "https://dhanraj-bike-production.up.railway.app";
+    : "https://app.dhanraj.co.in";
 
   return {
     ...baseConfig.expo,
