@@ -15,7 +15,7 @@ import { useLocalSearchParams, router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { Colors } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
-import { getApiUrl, apiRequest } from "@/lib/query-client";
+import { getApiUrl, apiRequest, notifyIfSubscriptionRequired } from "@/lib/query-client";
 import { fetch } from "expo/fetch";
 
 function formatDate(value: string | number | null | undefined): string {
@@ -113,6 +113,7 @@ export default function RepoAllocationDetailScreen() {
       const baseUrl = getApiUrl();
       const url = new URL(`/api/repo-allocations/${id}`, baseUrl);
       const res = await fetch(url.toString(), { credentials: "include" });
+      notifyIfSubscriptionRequired(res);
       if (!res.ok) throw new Error("Not found");
       const data = await res.json();
       setAllocation(data);
