@@ -18,6 +18,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { Colors } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
+import { APP_NAME, APP_TAGLINE, brandFooter } from "@/constants/branding";
 
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
@@ -68,8 +69,8 @@ export default function LoginScreen() {
             style={styles.logoImage}
             resizeMode="contain"
           />
-          <Text style={styles.brandName}>Dhanraj Enterprises</Text>
-          <Text style={styles.tagline}>Bike Recovery Management</Text>
+          <Text style={styles.brandName}>{APP_NAME}</Text>
+          <Text style={styles.tagline}>{APP_TAGLINE}</Text>
         </View>
 
         <View style={styles.card}>
@@ -157,7 +158,7 @@ export default function LoginScreen() {
           </Pressable>
         </View>
 
-        <Text style={styles.footer}>Dhanraj Enterprises © 2018</Text>
+        <Text style={styles.footer}>{brandFooter()}</Text>
       </ScrollView>
     </KeyboardAvoidingView>
   );
