@@ -22,6 +22,7 @@ import { useAuth } from "@/contexts/AuthContext";
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
   const { login } = useAuth();
+  const [agencyCode, setAgencyCode] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -31,18 +32,21 @@ export default function LoginScreen() {
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
   async function handleLogin() {
-    if (!username.trim() || !password.trim()) {
-      Alert.alert("Error", "Please enter username and password");
+    if (!agencyCode.trim() || !username.trim() || !password.trim()) {
+      Alert.alert("Error", "Please enter your agency code, username and password");
       return;
     }
     setIsLoading(true);
     try {
-      await login(username.trim(), password.trim());
+      await login(agencyCode.trim(), username.trim(), password.trim());
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.replace("/");
     } catch (e: any) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      Alert.alert("Login Failed", e.message?.includes("401") ? "Invalid username or password" : "Login failed. Please try again.");
+      Alert.alert(
+        "Login Failed",
+        e.message?.includes("401") ? "Invalid agency code, username or password" : "Login failed. Please try again."
+      );
     } finally {
       setIsLoading(false);
     }
@@ -71,6 +75,23 @@ export default function LoginScreen() {
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Sign In</Text>
           <Text style={styles.cardSubtitle}>Enter your credentials to continue</Text>
+
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>Agency Code</Text>
+            <View style={styles.inputWrap}>
+              <Ionicons name="business-outline" size={18} color={Colors.textMuted} style={styles.inputIcon} />
+              <TextInput
+                style={styles.input}
+                value={agencyCode}
+                onChangeText={(t) => setAgencyCode(t.toUpperCase())}
+                placeholder="e.g. AB12CD"
+                placeholderTextColor={Colors.textMuted}
+                autoCapitalize="characters"
+                autoCorrect={false}
+                returnKeyType="next"
+              />
+            </View>
+          </View>
 
           <View style={styles.inputGroup}>
             <Text style={styles.inputLabel}>Username</Text>
@@ -126,6 +147,13 @@ export default function LoginScreen() {
                 <Text style={styles.loginBtnText}>Sign In</Text>
               </>
             )}
+          </Pressable>
+
+          <Pressable
+            onPress={() => router.push("/register-agency")}
+            style={styles.registerLink}
+          >
+            <Text style={styles.registerLinkText}>New agency? Create your agency profile</Text>
           </Pressable>
         </View>
 
@@ -232,6 +260,15 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_700Bold",
     fontSize: 16,
     color: Colors.background,
+  },
+  registerLink: {
+    alignItems: "center",
+    paddingVertical: 4,
+  },
+  registerLinkText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 13,
+    color: Colors.primary,
   },
   footer: {
     fontFamily: "Inter_400Regular",
