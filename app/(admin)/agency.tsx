@@ -17,6 +17,7 @@ import * as Haptics from "expo-haptics";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Colors } from "@/constants/colors";
 import { apiRequest } from "@/lib/query-client";
+import SubscriptionCard from "@/components/SubscriptionCard";
 
 interface AgencyProfile {
   id: number;
@@ -95,6 +96,8 @@ export default function AgencyScreen() {
           <Text style={styles.shareBtnText}>Share with Staff</Text>
         </Pressable>
       </View>
+
+      <SubscriptionCard />
 
       <View style={styles.card}>
         <View style={styles.cardHeader}>
