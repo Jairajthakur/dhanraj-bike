@@ -16,7 +16,7 @@ import * as DocumentPicker from "expo-document-picker";
 import * as Haptics from "expo-haptics";
 import { useQuery } from "@tanstack/react-query";
 import { Colors } from "@/constants/colors";
-import { getApiUrl } from "@/lib/query-client";
+import { getApiUrl, notifyIfSubscriptionRequired } from "@/lib/query-client";
 
 export default function UploadScreen() {
   const insets = useSafeAreaInsets();
@@ -111,6 +111,7 @@ export default function UploadScreen() {
       body: formData,
       credentials: "include",
     });
+    notifyIfSubscriptionRequired(res);
     const data = await res.json();
     if (!res.ok) throw new Error(data.message || "Upload failed");
     setLastResult({ inserted: data.inserted, total: data.total });
@@ -140,6 +141,7 @@ export default function UploadScreen() {
       xhr.withCredentials = true;
 
       xhr.onload = () => {
+        notifyIfSubscriptionRequired(xhr);
         try {
           const data = JSON.parse(xhr.responseText);
           if (xhr.status >= 200 && xhr.status < 300) {
@@ -209,6 +211,7 @@ export default function UploadScreen() {
         formData.append("file", webFile);
         formData.append("replace", repoReplace ? "true" : "false");
         const res = await globalThis.fetch(uploadUrl, { method: "POST", body: formData, credentials: "include" });
+        notifyIfSubscriptionRequired(res);
         const data = await res.json();
         if (!res.ok) throw new Error(data.message || "Upload failed");
         setLastRepoResult({ inserted: data.inserted, total: data.total });
@@ -227,6 +230,7 @@ export default function UploadScreen() {
           xhr.open("POST", uploadUrl, true);
           xhr.withCredentials = true;
           xhr.onload = () => {
+            notifyIfSubscriptionRequired(xhr);
             try {
               const data = JSON.parse(xhr.responseText);
               if (xhr.status >= 200 && xhr.status < 300) {
