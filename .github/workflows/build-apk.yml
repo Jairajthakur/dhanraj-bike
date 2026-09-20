@@ -19,13 +19,18 @@ jobs:
           node-version: 20
 
       - name: Setup Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 17
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # The action's default is "tools platform-tools". The legacy "tools"
+          # package no longer exists in current cmdline-tools, which made
+          # sdkmanager fail with "Failed to find package 'tools'".
+          packages: platform-tools
 
       - name: Configure Gradle memory
         run: |
