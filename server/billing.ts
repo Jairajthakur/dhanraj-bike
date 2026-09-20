@@ -69,6 +69,23 @@ export function getSubscriptionInfo(agency: BillingFields, now: Date = new Date(
     };
   }
 
+  // No trial, no payment, not exempt: only possible for an agency that predates
+  // billing while the boot-time backfill (ensureSchema) hasn't run or failed, or
+  // if the billing columns are missing. A billing setup problem must never lock a
+  // team out of their work, so treat it as "no billing applied". New agencies
+  // always get trial_ends_at at registration, so this can't be used to dodge payment.
+  if (!trialEnd && !paidEnd) {
+    return {
+      ...base,
+      status: "exempt",
+      hasAccess: true,
+      trialEndsAt: null,
+      subscriptionEndsAt: null,
+      accessEndsAt: null,
+      daysLeft: null,
+    };
+  }
+
   const accessEnd =
     trialEnd && paidEnd ? (trialEnd > paidEnd ? trialEnd : paidEnd) : trialEnd || paidEnd;
 
