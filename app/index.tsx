@@ -1,6 +1,6 @@
 import { Redirect } from "expo-router";
 import { View, ActivityIndicator } from "react-native";
-import { useAuth } from "@/contexts/AuthContext";
+import { useAuth, isSubscriptionLocked } from "@/contexts/AuthContext";
 
 export default function Index() {
   const { user, isLoading } = useAuth();
@@ -15,6 +15,10 @@ export default function Index() {
 
   if (!user) {
     return <Redirect href="/login" />;
+  }
+
+  if (isSubscriptionLocked(user.subscription)) {
+    return <Redirect href="/subscription" />;
   }
 
   if (user.role === "admin") {
