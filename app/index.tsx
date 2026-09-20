@@ -22,7 +22,7 @@ export default function Index() {
   }
 
   if (user.role === "admin") {
-    return <Redirect href="/(admin)" />;
+    return <Redirect href="/(admin)/users" />;
   }
 
   if (user.role === "repo") {
