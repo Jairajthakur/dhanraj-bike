@@ -109,6 +109,10 @@ function NativeTabLayout({ unreadCount }: { unreadCount: number }) {
         <Label>Alerts</Label>
         {unreadCount > 0 && <Badge>{unreadCount}</Badge>}
       </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="agency">
+        <Icon sf={{ default: "building.2", selected: "building.2.fill" }} />
+        <Label>Agency</Label>
+      </NativeTabs.Trigger>
     </NativeTabs>
   );
 }
@@ -159,6 +163,13 @@ function ClassicTabLayout({ unreadCount }: { unreadCount: number }) {
           title: "Alerts",
           tabBarIcon: ({ color, size }) => <Ionicons name="notifications" size={size} color={color} />,
           tabBarBadge: unreadCount > 0 ? unreadCount : undefined,
+        }}
+      />
+      <Tabs.Screen
+        name="agency"
+        options={{
+          title: "Agency",
+          tabBarIcon: ({ color, size }) => <Ionicons name="business" size={size} color={color} />,
         }}
       />
     </Tabs>
