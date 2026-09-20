@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "Dhanraj Bikes",
-    "slug": "dhanraj-bike-recovery",
+    "name": "Bike Recovery",
+    "slug": "bike-recovery-app",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -15,10 +15,10 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.dhanrajenterprises.bikerecovery"
+      "bundleIdentifier": "com.bikerecovery.app"
     },
     "android": {
-      "package": "com.dhanrajenterprises.bikerecovery",
+      "package": "com.bikerecovery.app",
       "adaptiveIcon": {
         "backgroundColor": "#0F0F0F",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
