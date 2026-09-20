@@ -6,7 +6,14 @@ import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import { Pool } from "pg";
 import {
-  getUserByUsername,
+  ensureSchema,
+  verifyPassword,
+  createAgencyWithOwner,
+  getAgencyByCode,
+  getAgencyById,
+  getLegacyAgency,
+  updateAgency,
+  getUserByUsernameInAgency,
   getUserById,
   getAllUsers,
   createUser,
@@ -38,6 +45,7 @@ declare module "express-session" {
     role: string;
     username: string;
     fullName: string;
+    agencyId: number;
   }
 }
 
@@ -70,57 +78,162 @@ export async function registerRoutes(app: Express): Promise<Server> {
     })
   );
 
-  // Seed default admin user on first startup
+  // Create/upgrade the agencies table + agency_id columns on every boot.
   try {
-    const seedPool = new Pool({ connectionString: process.env.DATABASE_URL });
-    const existing = await seedPool.query("SELECT id FROM users WHERE role = 'admin' LIMIT 1");
-    if (existing.rowCount === 0) {
-      await seedPool.query(
-        "INSERT INTO users (username, password, role, full_name) VALUES ($1, $2, $3, $4)",
-        ["admin", "admin123", "admin", "Administrator"]
-      );
-      console.log("Seeded default admin user (admin/admin123)");
-    }
-    await seedPool.end();
+    await ensureSchema();
   } catch (e: any) {
-    console.error("Seed admin error:", e.message);
+    console.error("Schema setup error:", e.message);
   }
 
-  function requireAuth(req: Request, res: Response, next: any) {
-    if (!req.session.userId) return res.status(401).json({ message: "Not authenticated" });
-    next();
+  // ── Legacy session compatibility ───────────────────────────────────────────
+  // APKs built before the multi-tenant upgrade hold sessions that carry a
+  // userId but no agencyId. Rather than log those users out, we look the
+  // agency up from their own user row and attach it to the session. The value
+  // comes from the database, never from the client, so this grants no access
+  // the user didn't already have.
+  async function hydrateAgency(req: Request): Promise<boolean> {
+    if (!req.session.userId) return false;
+    if (req.session.agencyId) return true;
+    const user = await getUserById(req.session.userId);
+    if (!user) return false;
+    req.session.agencyId = user.agency_id;
+    // Backfill the other fields old sessions may predate, too.
+    if (!req.session.role) req.session.role = user.role;
+    if (!req.session.username) req.session.username = user.username;
+    if (!req.session.fullName) req.session.fullName = user.full_name;
+    await new Promise<void>((resolve) => req.session.save(() => resolve()));
+    return true;
   }
 
-  function requireAdmin(req: Request, res: Response, next: any) {
-    if (!req.session.userId) return res.status(401).json({ message: "Not authenticated" });
-    if (req.session.role !== "admin") return res.status(403).json({ message: "Admin only" });
-    next();
-  }
-
-  function requireRepo(req: Request, res: Response, next: any) {
-    if (!req.session.userId) return res.status(401).json({ message: "Not authenticated" });
-    if (req.session.role !== "repo" && req.session.role !== "admin") {
-      return res.status(403).json({ message: "Repo or Admin only" });
+  async function requireAuth(req: Request, res: Response, next: any) {
+    try {
+      if (!(await hydrateAgency(req))) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+      next();
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
     }
-    next();
   }
+
+  async function requireAdmin(req: Request, res: Response, next: any) {
+    try {
+      if (!(await hydrateAgency(req))) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+      if (req.session.role !== "admin") return res.status(403).json({ message: "Admin only" });
+      next();
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  }
+
+  async function requireRepo(req: Request, res: Response, next: any) {
+    try {
+      if (!(await hydrateAgency(req))) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+      if (req.session.role !== "repo" && req.session.role !== "admin") {
+        return res.status(403).json({ message: "Repo or Admin only" });
+      }
+      next();
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  }
+
+  // ── Agency registration (public) ───────────────────────────────────────────
+  // Agency owner creates their agency profile here; a unique agency code is
+  // generated and the owner becomes that agency's first admin user.
+  app.post("/api/agencies/register", async (req, res) => {
+    try {
+      const { agencyName, ownerName, phone, username, password } = req.body;
+      if (!agencyName?.trim() || !ownerName?.trim() || !username?.trim() || !password?.trim()) {
+        return res.status(400).json({ message: "Agency name, owner name, username and password are required" });
+      }
+      if (String(password).length < 4) {
+        return res.status(400).json({ message: "Password must be at least 4 characters" });
+      }
+      const { agency, user } = await createAgencyWithOwner({
+        agencyName: agencyName.trim(),
+        ownerName: ownerName.trim(),
+        phone: (phone || "").trim(),
+        username: username.trim(),
+        password: password.trim(),
+      });
+
+      req.session.userId = user.id;
+      req.session.role = user.role;
+      req.session.username = user.username;
+      req.session.fullName = user.full_name;
+      req.session.agencyId = agency.id;
+      req.session.save((err) => {
+        if (err) return res.status(500).json({ message: "Session save failed" });
+        res.json({
+          id: user.id,
+          username: user.username,
+          role: user.role,
+          fullName: user.full_name,
+          agencyId: agency.id,
+          agencyName: agency.name,
+          agencyCode: agency.code,
+        });
+      });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
 
   // Auth
   app.post("/api/auth/login", async (req, res) => {
     try {
-      const { username, password } = req.body;
-      if (!username || !password) return res.status(400).json({ message: "Username and password required" });
-      const user = await getUserByUsername(username);
-      if (!user || user.password !== password) {
+      const { agencyCode, username, password } = req.body;
+      if (!username || !password) {
+        return res.status(400).json({ message: "Username and password are required" });
+      }
+
+      let agency;
+      if (agencyCode?.trim()) {
+        agency = await getAgencyByCode(agencyCode.trim());
+        if (!agency || !agency.is_active) {
+          return res.status(401).json({ message: "Invalid agency code" });
+        }
+      } else {
+        // ── Old APK compatibility ────────────────────────────────────────────
+        // Builds released before the multi-tenant upgrade don't send an agency
+        // code. Those logins resolve against the legacy agency only, so users
+        // already in the field keep working without reinstalling.
+        // Set LEGACY_LOGIN_DISABLED=true to turn this off once everyone has
+        // updated to a build that sends an agency code.
+        if (process.env.LEGACY_LOGIN_DISABLED === "true") {
+          return res.status(400).json({ message: "Agency code is required. Please update the app." });
+        }
+        agency = await getLegacyAgency();
+        if (!agency || !agency.is_active) {
+          return res.status(400).json({ message: "Agency code is required" });
+        }
+      }
+
+      const user = await getUserByUsernameInAgency(agency.id, username);
+      if (!user || !(await verifyPassword(password, user.password))) {
         return res.status(401).json({ message: "Invalid credentials" });
       }
       req.session.userId = user.id;
       req.session.role = user.role;
       req.session.username = user.username;
       req.session.fullName = user.full_name;
+      req.session.agencyId = agency.id;
       req.session.save((err) => {
         if (err) return res.status(500).json({ message: "Session save failed" });
-        res.json({ id: user.id, username: user.username, role: user.role, fullName: user.full_name });
+        res.json({
+          id: user.id,
+          username: user.username,
+          role: user.role,
+          fullName: user.full_name,
+          agencyId: agency.id,
+          agencyName: agency.name,
+          agencyCode: agency.code,
+        });
       });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -132,16 +245,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.get("/api/auth/me", async (req, res) => {
-    if (!req.session.userId) return res.status(401).json({ message: "Not authenticated" });
-    const user = await getUserById(req.session.userId);
-    if (!user) return res.status(401).json({ message: "User not found" });
-    res.json({ id: user.id, username: user.username, role: user.role, fullName: user.full_name });
+    try {
+      // Hydrates agencyId for sessions created by pre-upgrade APKs.
+      if (!(await hydrateAgency(req))) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+      const user = await getUserById(req.session.userId!);
+      if (!user) return res.status(401).json({ message: "User not found" });
+      const agency = await getAgencyById(req.session.agencyId!);
+      if (!agency || !agency.is_active) return res.status(401).json({ message: "Agency not found" });
+      res.json({
+        id: user.id,
+        username: user.username,
+        role: user.role,
+        fullName: user.full_name,
+        agencyId: agency.id,
+        agencyName: agency.name,
+        agencyCode: agency.code,
+      });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
   });
 
-  // Users (admin only)
+  // Agency profile (own agency only)
+  app.get("/api/agency", requireAuth, async (req, res) => {
+    try {
+      const agency = await getAgencyById(req.session.agencyId!);
+      if (!agency) return res.status(404).json({ message: "Agency not found" });
+      res.json(agency);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.put("/api/agency", requireAdmin, async (req, res) => {
+    try {
+      const { name, owner_name, phone } = req.body;
+      const agency = await updateAgency(req.session.agencyId!, { name, owner_name, phone });
+      res.json(agency);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // Users (admin only, scoped to the admin's own agency)
   app.get("/api/users", requireAdmin, async (req, res) => {
     try {
-      const users = await getAllUsers();
+      const users = await getAllUsers(req.session.agencyId!);
       res.json(users);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -152,9 +303,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { username, password, role, full_name } = req.body;
       if (!username || !password || !role) return res.status(400).json({ message: "Missing fields" });
-      const existing = await getUserByUsername(username);
-      if (existing) return res.status(409).json({ message: "Username already exists" });
-      const user = await createUser(username, password, role, full_name || username);
+      const existing = await getUserByUsernameInAgency(req.session.agencyId!, username);
+      if (existing) return res.status(409).json({ message: "Username already exists in this agency" });
+      const user = await createUser(req.session.agencyId!, username, password, role, full_name || username);
       res.json({ id: user.id, username: user.username, role: user.role, fullName: user.full_name });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -163,9 +314,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/users/:id", requireAdmin, async (req, res) => {
     try {
-      const id = parseInt(req.params.id);
-      if (id === req.session.userId) return res.status(400).json({ message: "Cannot delete yourself" });
-      await deleteUser(id);
+      const id = parseInt(String(req.params.id));
+      if (id === req.session.userId!) return res.status(400).json({ message: "Cannot delete yourself" });
+      await deleteUser(id, req.session.agencyId!);
       res.json({ ok: true });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -176,35 +327,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/allocations/search", requireAuth, async (req, res) => {
     try {
       const { reg, chassis } = req.query;
+      const agencyId = req.session.agencyId!;
       if (chassis && typeof chassis === "string" && chassis.trim().length >= 2) {
-        const results = await searchAllocationByChassis(chassis);
+        const results = await searchAllocationByChassis(agencyId, chassis);
         return res.json(results);
       }
       if (!reg || typeof reg !== "string" || reg.trim().length < 2) {
         return res.json([]);
       }
-      const results = await searchAllocationByRegistration(reg);
+      const results = await searchAllocationByRegistration(agencyId, reg);
       res.json(results);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }
   });
 
-app.get("/api/allocations/all", requireAuth, async (req, res) => {
-  try {
-    const role = req.session.role;
-    const allocations = role === "repo"
-      ? await getAllRepoAllocations()
-      : await getAllAllocations();
-    res.json(allocations);
-  } catch (e: any) {
-    res.status(500).json({ message: e.message });
-  }
-});
+  app.get("/api/allocations/all", requireAuth, async (req, res) => {
+    try {
+      const role = req.session.role;
+      const agencyId = req.session.agencyId!;
+      const allocations = role === "repo"
+        ? await getAllRepoAllocations(agencyId)
+        : await getAllAllocations(agencyId);
+      res.json(allocations);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
 
   app.get("/api/allocations/count", requireAuth, async (req, res) => {
     try {
-      const count = await getAllocationCount();
+      const count = await getAllocationCount(req.session.agencyId!);
       res.json({ count });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -213,8 +366,8 @@ app.get("/api/allocations/all", requireAuth, async (req, res) => {
 
   app.get("/api/allocations/:id", requireAuth, async (req, res) => {
     try {
-      const id = parseInt(req.params.id);
-      const allocation = await getAllocationById(id);
+      const id = parseInt(String(req.params.id));
+      const allocation = await getAllocationById(req.session.agencyId!, id);
       if (!allocation) return res.status(404).json({ message: "Not found" });
       res.json(allocation);
     } catch (e: any) {
@@ -254,8 +407,9 @@ app.get("/api/allocations/all", requireAuth, async (req, res) => {
         detail_fb: String(row["Detail FB"] || row["detail_fb"] || row["DetailFB"] || row["DETAIL_FB"] || ""),
       }));
       const shouldReplace = req.body.replace === "true";
-      if (shouldReplace) await clearAllocations();
-      const inserted = await bulkInsertAllocations(mapped);
+      const agencyId = req.session.agencyId!;
+      if (shouldReplace) await clearAllocations(agencyId);
+      const inserted = await bulkInsertAllocations(agencyId, mapped);
       dataVersion.alloc = Date.now();
       res.json({ inserted, total: mapped.length });
     } catch (e: any) {
@@ -267,12 +421,13 @@ app.get("/api/allocations/all", requireAuth, async (req, res) => {
   app.get("/api/repo-allocations/search", requireRepo, async (req, res) => {
     try {
       const { reg, chassis } = req.query;
+      const agencyId = req.session.agencyId!;
       if (chassis && typeof chassis === "string" && chassis.trim().length >= 2) {
-        const results = await searchRepoAllocationByChassis(chassis);
+        const results = await searchRepoAllocationByChassis(agencyId, chassis);
         return res.json(results);
       }
       if (!reg || typeof reg !== "string" || reg.trim().length < 2) return res.json([]);
-      const results = await searchRepoAllocationByRegistration(reg);
+      const results = await searchRepoAllocationByRegistration(agencyId, reg);
       res.json(results);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -281,7 +436,7 @@ app.get("/api/allocations/all", requireAuth, async (req, res) => {
 
   app.get("/api/repo-allocations/count", requireAdmin, async (req, res) => {
     try {
-      const count = await getRepoAllocationCount();
+      const count = await getRepoAllocationCount(req.session.agencyId!);
       res.json({ count });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -290,8 +445,8 @@ app.get("/api/allocations/all", requireAuth, async (req, res) => {
 
   app.get("/api/repo-allocations/:id", requireRepo, async (req, res) => {
     try {
-      const id = parseInt(req.params.id);
-      const allocation = await getRepoAllocationById(id);
+      const id = parseInt(String(req.params.id));
+      const allocation = await getRepoAllocationById(req.session.agencyId!, id);
       if (!allocation) return res.status(404).json({ message: "Not found" });
       res.json(allocation);
     } catch (e: any) {
@@ -331,8 +486,9 @@ app.get("/api/allocations/all", requireAuth, async (req, res) => {
         detail_fb: String(row["Detail FB"] || row["detail_fb"] || row["DetailFB"] || row["DETAIL_FB"] || ""),
       }));
       const shouldReplace = req.body.replace === "true";
-      if (shouldReplace) await clearRepoAllocations();
-      const inserted = await bulkInsertRepoAllocations(mapped);
+      const agencyId = req.session.agencyId!;
+      if (shouldReplace) await clearRepoAllocations(agencyId);
+      const inserted = await bulkInsertRepoAllocations(agencyId, mapped);
       dataVersion.repo = Date.now();
       res.json({ inserted, total: mapped.length });
     } catch (e: any) {
@@ -344,8 +500,8 @@ app.get("/api/allocations/all", requireAuth, async (req, res) => {
   app.put("/api/auth/push-token", requireAuth, async (req, res) => {
     try {
       const { token } = req.body;
-      if (!token || !req.session.userId) return res.status(400).json({ message: "Missing token" });
-      await updateUserPushToken(req.session.userId, token);
+      if (!token || !req.session.userId!) return res.status(400).json({ message: "Missing token" });
+      await updateUserPushToken(req.session.userId!, token);
       res.json({ ok: true });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -359,7 +515,8 @@ app.get("/api/allocations/all", requireAuth, async (req, res) => {
       if (!req.session.userId) return res.status(401).json({ message: "Not authenticated" });
       const role = source_role || req.session.role || "fos";
       const notif = await createNotification({
-        fos_user_id: req.session.userId,
+        agency_id: req.session.agencyId!,
+        fos_user_id: req.session.userId!,
         fos_name: req.session.fullName || req.session.username || role.toUpperCase(),
         customer_name,
         registration_no,
@@ -374,7 +531,7 @@ app.get("/api/allocations/all", requireAuth, async (req, res) => {
 
   app.get("/api/notifications", requireAdmin, async (req, res) => {
     try {
-      const notifs = await getAllNotifications();
+      const notifs = await getAllNotifications(req.session.agencyId!);
       res.json(notifs);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -383,7 +540,7 @@ app.get("/api/allocations/all", requireAuth, async (req, res) => {
 
   app.get("/api/notifications/unread-count", requireAdmin, async (req, res) => {
     try {
-      const count = await getUnreadCount();
+      const count = await getUnreadCount(req.session.agencyId!);
       res.json({ count });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -392,7 +549,7 @@ app.get("/api/allocations/all", requireAuth, async (req, res) => {
 
   app.put("/api/notifications/:id/read", requireAdmin, async (req, res) => {
     try {
-      await markNotificationRead(parseInt(req.params.id));
+      await markNotificationRead(req.session.agencyId!, parseInt(String(req.params.id)));
       res.json({ ok: true });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
