@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useMemo, ReactNode } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { apiRequest, getApiUrl, queryClient } from "@/lib/query-client";
+import { clearCache } from "@/lib/offlineCache";
 import { fetch } from "expo/fetch";
 
 const USER_STORAGE_KEY = "auth_user";
@@ -10,12 +11,22 @@ export interface AuthUser {
   username: string;
   role: "admin" | "fos" | "repo";
   fullName: string;
+  agencyId: number;
+  agencyName: string;
+  agencyCode: string;
 }
 
 interface AuthContextValue {
   user: AuthUser | null;
   isLoading: boolean;
-  login: (username: string, password: string) => Promise<void>;
+  login: (agencyCode: string, username: string, password: string) => Promise<void>;
+  registerAgency: (data: {
+    agencyName: string;
+    ownerName: string;
+    phone: string;
+    username: string;
+    password: string;
+  }) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -52,6 +63,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (res.status === 401) {
         setUser(null);
         await AsyncStorage.removeItem(USER_STORAGE_KEY);
+        // Session gone — drop cached allocations so another agency's device
+        // can never read leftover rows from the previous tenant.
+        await clearCache();
       }
       // Any other error (network, 500, etc.) — keep cached user as-is
     } catch {
@@ -61,22 +75,45 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  async function login(username: string, password: string) {
-    const res = await apiRequest("POST", "/api/auth/login", { username, password });
+  async function login(agencyCode: string, username: string, password: string) {
+    const res = await apiRequest("POST", "/api/auth/login", { agencyCode, username, password });
     const data = await res.json();
     queryClient.clear();
+    // Wipe any allocations cached under a previous agency/user on this device.
+    await clearCache();
     setUser(data);
     await AsyncStorage.setItem(USER_STORAGE_KEY, JSON.stringify(data));
   }
 
-  async function logout() {
-    await apiRequest("POST", "/api/auth/logout");
+  async function registerAgency(data: {
+    agencyName: string;
+    ownerName: string;
+    phone: string;
+    username: string;
+    password: string;
+  }) {
+    const res = await apiRequest("POST", "/api/agencies/register", data);
+    const user = await res.json();
     queryClient.clear();
+    await clearCache();
+    setUser(user);
+    await AsyncStorage.setItem(USER_STORAGE_KEY, JSON.stringify(user));
+  }
+
+  async function logout() {
+    try {
+      await apiRequest("POST", "/api/auth/logout");
+    } catch {}
+    queryClient.clear();
+    await clearCache();
     setUser(null);
     await AsyncStorage.removeItem(USER_STORAGE_KEY);
   }
 
-  const value = useMemo(() => ({ user, isLoading, login, logout }), [user, isLoading]);
+  const value = useMemo(
+    () => ({ user, isLoading, login, registerAgency, logout }),
+    [user, isLoading]
+  );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
