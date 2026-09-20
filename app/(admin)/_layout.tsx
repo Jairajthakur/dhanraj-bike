@@ -8,7 +8,8 @@ import React, { useEffect, useState, useRef } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Colors } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
-import { getApiUrl } from "@/lib/query-client";
+import { formatRupees } from "@/hooks/useBilling";
+import { getApiUrl, notifyIfSubscriptionRequired } from "@/lib/query-client";
 import { fetch } from "expo/fetch";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
 
@@ -75,6 +76,51 @@ function AlertPopup({ notif, onDismiss }: { notif: LatestNotif; onDismiss: () =>
         <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
       </Pressable>
     </Animated.View>
+  );
+}
+
+// One-time heads-up per app launch when a trial / paid month is about to end.
+function SubscriptionReminder() {
+  const { user } = useAuth();
+  const insets = useSafeAreaInsets();
+  const sub = user?.subscription;
+  const [visible, setVisible] = useState(false);
+  const shown = useRef(false);
+
+  const due =
+    !!sub && (sub.status === "trial" || sub.status === "active") && (sub.daysLeft ?? 99) <= 3;
+
+  useEffect(() => {
+    if (due && !shown.current) {
+      shown.current = true;
+      setVisible(true);
+      const t = setTimeout(() => setVisible(false), 7000);
+      return () => clearTimeout(t);
+    }
+  }, [due]);
+
+  if (!visible || !sub) return null;
+  const days = sub.daysLeft ?? 0;
+  const what = sub.status === "trial" ? "Free trial" : "Subscription";
+  const topOffset = Platform.OS === "web" ? 67 : insets.top + 8;
+
+  return (
+    <Pressable
+      style={[styles.popup, styles.reminder, { top: topOffset }]}
+      onPress={() => {
+        setVisible(false);
+        router.push("/(admin)/agency");
+      }}
+    >
+      <Ionicons name="time" size={22} color={Colors.orange} />
+      <View style={{ flex: 1 }}>
+        <Text style={styles.reminderTitle}>
+          {what} ends {days <= 0 ? "today" : days === 1 ? "tomorrow" : `in ${days} days`}
+        </Text>
+        <Text style={styles.reminderText}>Tap to renew — {formatRupees(sub.amount)}/month</Text>
+      </View>
+      <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
+    </Pressable>
   );
 }
 
@@ -201,6 +247,7 @@ export default function AdminLayout() {
       const baseUrl = getApiUrl();
       const url = new URL("/api/notifications/unread-count", baseUrl);
       const res = await fetch(url.toString(), { credentials: "include" });
+      notifyIfSubscriptionRequired(res);
       if (res.ok) {
         const data = await res.json();
         const newCount = data.count;
@@ -220,6 +267,7 @@ export default function AdminLayout() {
       const baseUrl = getApiUrl();
       const url = new URL("/api/notifications", baseUrl);
       const res = await fetch(url.toString(), { credentials: "include" });
+      notifyIfSubscriptionRequired(res);
       if (res.ok) {
         const notifs = await res.json();
         const unread = notifs.filter((n: any) => !n.is_read);
@@ -243,6 +291,7 @@ export default function AdminLayout() {
       ) : (
         <ClassicTabLayout unreadCount={unreadCount} />
       )}
+      <SubscriptionReminder />
       {popup && (
         <AlertPopup
           notif={popup}
@@ -281,6 +330,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  reminder: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 14,
+    gap: 12,
+    borderColor: Colors.orange,
+  },
+  reminderTitle: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: Colors.textPrimary },
+  reminderText: { fontFamily: "Inter_400Regular", fontSize: 12, color: Colors.textSecondary, marginTop: 2 },
   popupBody: { flex: 1, gap: 3 },
   popupRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   popupBadge: {
