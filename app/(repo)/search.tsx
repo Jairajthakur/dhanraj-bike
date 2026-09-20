@@ -19,7 +19,7 @@ import * as Haptics from "expo-haptics";
 import * as Network from "expo-network";
 import { Colors } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
-import { getApiUrl } from "@/lib/query-client";
+import { getApiUrl, notifyIfSubscriptionRequired } from "@/lib/query-client";
 import { fetch } from "expo/fetch";
 import {
   CachedAllocation,
@@ -168,6 +168,7 @@ export default function RepoSearchScreen() {
         const res = await fetch(new URL("/api/data-version", baseUrl).toString(), {
           credentials: "include",
         });
+        notifyIfSubscriptionRequired(res);
         if (!res.ok) return;
         const serverVer = await res.json();
         const storedVer = await getStoredServerVersion();
@@ -204,6 +205,7 @@ export default function RepoSearchScreen() {
       const baseUrl = getApiUrl();
       const url = new URL("/api/allocations/all", baseUrl);
       const res = await fetch(url.toString(), { credentials: "include" });
+      notifyIfSubscriptionRequired(res);
       if (!res.ok) throw new Error("Sync failed");
       const data: CachedAllocation[] = await res.json();
       await saveRepoAllocationsToCache(data);
