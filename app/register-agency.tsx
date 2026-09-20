@@ -74,7 +74,7 @@ export default function RegisterAgencyScreen() {
           </View>
           <Text style={styles.successTitle}>Agency Created</Text>
           <Text style={styles.successSubtitle}>
-            Share this code with your FOS and Repo staff — they'll need it to sign in.
+            Share this code with your FOS and Repo staff — they'll need it to sign in. Your 7-day free trial has started.
           </Text>
 
           <View style={styles.codeCard}>
@@ -116,6 +116,10 @@ export default function RegisterAgencyScreen() {
         <Text style={styles.subtitle}>
           Set up your agency profile. We'll generate a unique agency code your team will use to log in — your cases stay private to your agency.
         </Text>
+        <View style={styles.trialPill}>
+          <Ionicons name="gift-outline" size={16} color={Colors.primary} />
+          <Text style={styles.trialPillText}>7-day free trial, then ₹2,000/month</Text>
+        </View>
 
         <View style={styles.card}>
           <Field label="Agency Name" value={agencyName} onChangeText={setAgencyName} placeholder="e.g. Shree Finance Recovery" />
@@ -186,6 +190,20 @@ function Field({
 }
 
 const styles = StyleSheet.create({
+  trialPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    gap: 8,
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.primaryDark,
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginBottom: 16,
+  },
+  trialPillText: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: Colors.primary },
   root: { flex: 1, backgroundColor: Colors.background },
   container: { paddingHorizontal: 24, paddingBottom: 40 },
   backBtn: {
