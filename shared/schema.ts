@@ -3,9 +3,20 @@ import { pgTable, text, varchar, integer, boolean, timestamp } from "drizzle-orm
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
+export const agencies = pgTable("agencies", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  name: text("name").notNull(),
+  code: text("code").notNull().unique(),
+  owner_name: text("owner_name").notNull().default(""),
+  phone: text("phone").notNull().default(""),
+  is_active: boolean("is_active").default(true),
+  created_at: timestamp("created_at").defaultNow(),
+});
+
 export const users = pgTable("users", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  username: text("username").notNull().unique(),
+  agency_id: integer("agency_id").notNull(),
+  username: text("username").notNull(),
   password: text("password").notNull(),
   role: text("role").notNull().default("fos"),
   full_name: text("full_name").notNull().default(""),
@@ -15,6 +26,7 @@ export const users = pgTable("users", {
 
 export const allocations = pgTable("allocations", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  agency_id: integer("agency_id").notNull(),
   loan_no: text("loan_no"),
   app_id: text("app_id"),
   customer_name: text("customer_name"),
@@ -40,6 +52,7 @@ export const allocations = pgTable("allocations", {
 
 export const repoAllocations = pgTable("repo_allocations", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  agency_id: integer("agency_id").notNull(),
   loan_no: text("loan_no"),
   app_id: text("app_id"),
   customer_name: text("customer_name"),
@@ -65,6 +78,7 @@ export const repoAllocations = pgTable("repo_allocations", {
 
 export const notifications = pgTable("notifications", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  agency_id: integer("agency_id").notNull(),
   fos_user_id: integer("fos_user_id"),
   fos_name: text("fos_name"),
   customer_name: text("customer_name"),
