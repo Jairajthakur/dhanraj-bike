@@ -108,6 +108,54 @@ function getAppName(): string {
   }
 }
 
+// Play Store (and Apple) require a reachable Privacy Policy URL, and Play
+// Console asks for a support contact. These three pages are served as plain
+// HTML so they work as public links in the store listing without needing the
+// Expo app itself to be running. Fill in the placeholders below via env vars
+// before publishing — see server/templates/{privacy-policy,terms,support}.html.
+function configureLegalPages(app: express.Application) {
+  const appName = getAppName();
+  const effectiveDate = new Date().toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+
+  const values: Record<string, string> = {
+    APP_NAME_PLACEHOLDER: appName,
+    EFFECTIVE_DATE_PLACEHOLDER: effectiveDate,
+    SUPPORT_EMAIL_PLACEHOLDER: process.env.SUPPORT_EMAIL || "th.jairaj@gmail.com",
+    SUPPORT_PHONE_PLACEHOLDER: process.env.SUPPORT_PHONE || "+91 86258 88869",
+    RESPONSE_TIME_PLACEHOLDER: process.env.SUPPORT_RESPONSE_TIME || "1 business day",
+    COMPANY_NAME_PLACEHOLDER: process.env.COMPANY_NAME || "the developer of this app",
+    GOVERNING_LAW_PLACEHOLDER: process.env.GOVERNING_LAW || "India",
+  };
+
+  function render(fileName: string): string | null {
+    const filePath = path.resolve(process.cwd(), "server", "templates", fileName);
+    if (!fs.existsSync(filePath)) return null;
+    let html = fs.readFileSync(filePath, "utf-8");
+    for (const [key, val] of Object.entries(values)) {
+      html = html.split(key).join(val);
+    }
+    return html;
+  }
+
+  function servePage(routePath: string, fileName: string) {
+    app.get(routePath, (_req: Request, res: Response) => {
+      const html = render(fileName);
+      if (!html) return res.status(404).send("Not found");
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.status(200).send(html);
+    });
+  }
+
+  servePage("/privacy", "privacy-policy.html");
+  servePage("/terms", "terms.html");
+  servePage("/support", "support.html");
+  log("Legal pages ready at /privacy, /terms, /support");
+}
+
 function serveExpoManifest(platform: string, res: Response) {
   try {
     const manifestPath = path.resolve(
@@ -236,6 +284,7 @@ function setupErrorHandler(app: express.Application) {
     res.status(200).send("pong");
   });
 
+  configureLegalPages(app);
   configureExpoAndLanding(app);
 
   let server: any;
