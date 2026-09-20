@@ -1,6 +1,7 @@
 import { Pool } from "pg";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
+import { TRIAL_DAYS, CURRENCY, addMonths, billingExemptCodes } from "./billing";
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
@@ -77,6 +78,64 @@ export async function ensureSchema(): Promise<void> {
     await client.query(`CREATE INDEX IF NOT EXISTS idx_allocations_agency ON allocations (agency_id)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_repo_allocations_agency ON repo_allocations (agency_id)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_notifications_agency ON notifications (agency_id)`);
+
+    // ── Billing (trial + Rs 2,000/month via Cashfree) ────────────────────────
+    // Keep in sync with shared/schema.ts — the Docker start command runs
+    // `drizzle-kit push --force`, which drops anything not declared there. That
+    // push also runs BEFORE this code, so the columns may already exist (empty);
+    // hence "un-billed" agencies are detected from their data, not from whether
+    // the column had to be created.
+    await client.query(`ALTER TABLE agencies ADD COLUMN IF NOT EXISTS billing_exempt BOOLEAN NOT NULL DEFAULT FALSE`);
+    await client.query(`ALTER TABLE agencies ADD COLUMN IF NOT EXISTS trial_ends_at TIMESTAMPTZ`);
+    await client.query(`ALTER TABLE agencies ADD COLUMN IF NOT EXISTS subscription_ends_at TIMESTAMPTZ`);
+
+    // "Un-billed" = predates billing: no trial recorded, no payment, not exempt.
+    // Every agency registered after this ships gets trial_ends_at at creation, so
+    // it can never look un-billed. That is what makes the steps below safe to
+    // run on every boot (idempotent) and impossible for a new registrant to abuse.
+    const UNBILLED = `trial_ends_at IS NULL AND subscription_ends_at IS NULL AND billing_exempt = FALSE`;
+
+    // 1) The pre-existing Dhanraj Enterprises agency is exempt (matched by name
+    //    only among pre-billing rows, so registering that name later gains nothing).
+    await client.query(
+      `UPDATE agencies SET billing_exempt = TRUE WHERE ${UNBILLED} AND LOWER(TRIM(name)) = 'dhanraj enterprises'`
+    );
+    // 2) Configured exempt codes (default DHANRAJ1) are always exempt.
+    await client.query(
+      `UPDATE agencies SET billing_exempt = TRUE WHERE UPPER(code) = ANY($1) AND billing_exempt = FALSE`,
+      [billingExemptCodes()]
+    );
+    // 3) Every other pre-existing agency gets a fresh 7-day trial starting now,
+    //    rather than being locked out instantly because it was created long ago.
+    const backfilled = await client.query(
+      `UPDATE agencies SET trial_ends_at = NOW() + make_interval(days => $1) WHERE ${UNBILLED}`,
+      [TRIAL_DAYS]
+    );
+    if (backfilled.rowCount) {
+      console.log(`Billing: gave ${backfilled.rowCount} existing agenc${backfilled.rowCount === 1 ? "y" : "ies"} a ${TRIAL_DAYS}-day trial`);
+    }
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS subscription_payments (
+        id INTEGER PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+        agency_id INTEGER NOT NULL,
+        order_id TEXT NOT NULL,
+        amount INTEGER NOT NULL,
+        currency TEXT NOT NULL DEFAULT 'INR',
+        status TEXT NOT NULL DEFAULT 'PENDING',
+        payment_session_id TEXT,
+        cf_order_id TEXT,
+        cf_payment_id TEXT,
+        period_start TIMESTAMPTZ,
+        period_end TIMESTAMPTZ,
+        paid_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        CONSTRAINT subscription_payments_order_id_unique UNIQUE (order_id)
+      );
+    `);
+    await client.query(
+      `CREATE INDEX IF NOT EXISTS idx_subscription_payments_agency ON subscription_payments (agency_id)`
+    );
   } finally {
     client.release();
   }
@@ -105,6 +164,9 @@ export interface Agency {
   phone: string;
   is_active: boolean;
   created_at: string;
+  billing_exempt: boolean;
+  trial_ends_at: Date | null;
+  subscription_ends_at: Date | null;
 }
 
 function generateAgencyCode(): string {
@@ -173,8 +235,9 @@ export async function createAgencyWithOwner(data: {
       const code = generateAgencyCode();
       try {
         agencyRow = await client.query(
-          `INSERT INTO agencies (name, code, owner_name, phone, is_active) VALUES ($1, $2, $3, $4, TRUE) RETURNING *`,
-          [data.agencyName, code, data.ownerName, data.phone]
+          `INSERT INTO agencies (name, code, owner_name, phone, is_active, trial_ends_at)
+           VALUES ($1, $2, $3, $4, TRUE, NOW() + make_interval(days => $5)) RETURNING *`,
+          [data.agencyName, code, data.ownerName, data.phone, TRIAL_DAYS]
         );
         break;
       } catch (e: any) {
@@ -192,6 +255,109 @@ export async function createAgencyWithOwner(data: {
 
     await client.query("COMMIT");
     return { agency, user: userRow.rows[0] };
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+// ── Subscription payments ────────────────────────────────────────────────────
+export interface SubscriptionPayment {
+  id: number;
+  agency_id: number;
+  order_id: string;
+  amount: number;
+  currency: string;
+  status: "PENDING" | "PAID";
+  payment_session_id: string | null;
+  cf_order_id: string | null;
+  cf_payment_id: string | null;
+  period_start: Date | null;
+  period_end: Date | null;
+  paid_at: Date | null;
+  created_at: Date;
+}
+
+export async function createSubscriptionPayment(data: {
+  agency_id: number;
+  order_id: string;
+  amount: number;
+  payment_session_id: string;
+  cf_order_id: string;
+}): Promise<SubscriptionPayment> {
+  const result = await pool.query(
+    `INSERT INTO subscription_payments (agency_id, order_id, amount, currency, payment_session_id, cf_order_id)
+     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+    [data.agency_id, data.order_id, data.amount, CURRENCY, data.payment_session_id, data.cf_order_id]
+  );
+  return result.rows[0];
+}
+
+export async function getSubscriptionPayment(orderId: string): Promise<SubscriptionPayment | null> {
+  const result = await pool.query("SELECT * FROM subscription_payments WHERE order_id = $1", [orderId]);
+  return result.rows[0] || null;
+}
+
+// The agency's newest unpaid order from the last 24h — used to reconcile in case
+// the webhook never arrived.
+export async function getRecentPendingPayment(agencyId: number): Promise<SubscriptionPayment | null> {
+  const result = await pool.query(
+    `SELECT * FROM subscription_payments
+     WHERE agency_id = $1 AND status = 'PENDING' AND created_at > NOW() - INTERVAL '24 hours'
+     ORDER BY created_at DESC LIMIT 1`,
+    [agencyId]
+  );
+  return result.rows[0] || null;
+}
+
+// Marks an order paid and extends the agency by one month, atomically and
+// idempotently: webhook, return page and status polling can all race on the same
+// order and the month is still granted exactly once (row lock + status check).
+// The new month starts when current access ends, so paying early loses no days.
+export async function activatePaidOrder(
+  orderId: string,
+  cfPaymentId: string | null
+): Promise<{ activated: boolean; agencyId: number | null }> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const pay = await client.query("SELECT * FROM subscription_payments WHERE order_id = $1 FOR UPDATE", [orderId]);
+    const payment: SubscriptionPayment | undefined = pay.rows[0];
+    if (!payment) {
+      await client.query("ROLLBACK");
+      return { activated: false, agencyId: null };
+    }
+    if (payment.status === "PAID") {
+      await client.query("COMMIT");
+      return { activated: false, agencyId: payment.agency_id };
+    }
+
+    const ag = await client.query("SELECT * FROM agencies WHERE id = $1 FOR UPDATE", [payment.agency_id]);
+    const agency: Agency = ag.rows[0];
+    if (!agency) {
+      await client.query("ROLLBACK");
+      return { activated: false, agencyId: null };
+    }
+
+    const now = new Date();
+    let start = now;
+    if (agency.trial_ends_at && new Date(agency.trial_ends_at) > start) start = new Date(agency.trial_ends_at);
+    if (agency.subscription_ends_at && new Date(agency.subscription_ends_at) > start) {
+      start = new Date(agency.subscription_ends_at);
+    }
+    const end = addMonths(start, 1);
+
+    await client.query(
+      `UPDATE subscription_payments
+       SET status = 'PAID', paid_at = $2, cf_payment_id = $3, period_start = $4, period_end = $5
+       WHERE order_id = $1`,
+      [orderId, now, cfPaymentId, start, end]
+    );
+    await client.query("UPDATE agencies SET subscription_ends_at = $2 WHERE id = $1", [agency.id, end]);
+    await client.query("COMMIT");
+    return { activated: true, agencyId: agency.id };
   } catch (e) {
     await client.query("ROLLBACK");
     throw e;
