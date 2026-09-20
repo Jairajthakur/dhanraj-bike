@@ -19,6 +19,7 @@ import * as Haptics from "expo-haptics";
 import * as Network from "expo-network";
 import { Colors } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
+import { brandNameUpper, brandInitial } from "@/constants/branding";
 import { getApiUrl, notifyIfSubscriptionRequired } from "@/lib/query-client";
 import { fetch } from "expo/fetch";
 import {
@@ -483,10 +484,10 @@ export default function FosSearchScreen() {
               fill="#D4950F"
               fontFamily="Arial"
             >
-              D
+              {brandInitial(user?.agencyName)}
             </SvgText>
           </Svg>
-          <Text style={styles.hintBrand}>DHANRAJ ENTERPRISES</Text>
+          <Text style={styles.hintBrand} numberOfLines={2}>{brandNameUpper(user?.agencyName)}</Text>
           <View style={styles.hintDivider}>
             <View style={styles.hintLine} />
             <View style={styles.hintDot} />
@@ -619,6 +620,8 @@ const styles = StyleSheet.create({
   hintBrand: {
     fontFamily: "Inter_700Bold", fontSize: 13, color: Colors.primary,
     letterSpacing: 4, marginTop: 6,
+    // Agency names vary in length — keep long ones centred and inside the screen.
+    textAlign: "center", paddingHorizontal: 24, lineHeight: 20,
   },
   hintDivider: { flexDirection: "row", alignItems: "center", gap: 6 },
   hintLine: { width: 22, height: 1, backgroundColor: Colors.border },
