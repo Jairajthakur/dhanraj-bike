@@ -6,7 +6,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useBilling, formatBillingDate, formatRupees } from "@/hooks/useBilling";
 
 // Admin-facing subscription status + pay/renew button. Renders nothing for
-// agencies that never pay (Dhanraj Enterprises), so their screen is unchanged.
+// agencies that never pay (exempt agencies), so their screen is unchanged.
 export default function SubscriptionCard() {
   const { user } = useAuth();
   const { status, starting, awaiting, error, startPayment, refresh, cancelWaiting } = useBilling();
