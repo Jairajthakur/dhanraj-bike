@@ -17,7 +17,23 @@ export function getApiUrl(): string {
   return `https://${host || "dhanraj-bike-production.up.railway.app"}`;
 }
 
+// ── Subscription paywall hook ────────────────────────────────────────────────
+// The server answers HTTP 402 on every data route once an agency's trial or
+// subscription has ended. AuthContext registers a handler here that re-checks
+// the subscription and lets the root layout move the user to the paywall.
+let onSubscriptionRequired: (() => void) | null = null;
+
+export function setSubscriptionRequiredHandler(fn: (() => void) | null) {
+  onSubscriptionRequired = fn;
+}
+
+// Call with any response from our API (including ones made with raw fetch).
+export function notifyIfSubscriptionRequired(res: { status: number }) {
+  if (res.status === 402) onSubscriptionRequired?.();
+}
+
 async function throwIfResNotOk(res: Response) {
+  notifyIfSubscriptionRequired(res);
   if (!res.ok) {
     const text = (await res.text()) || res.statusText;
     throw new Error(`${res.status}: ${text}`);
@@ -56,7 +72,7 @@ export const getQueryFn: <T>(options: {
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {
       return null;
     }
-    await throwIfResNotOk(res);
+    await throwIfResNotOk(res); // also handles 402 via notifyIfSubscriptionRequired
     return await res.json();
   };
 
