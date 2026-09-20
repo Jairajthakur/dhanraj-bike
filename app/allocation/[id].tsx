@@ -16,7 +16,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Network from "expo-network";
 import { Colors } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
-import { getApiUrl, apiRequest } from "@/lib/query-client";
+import { getApiUrl, apiRequest, notifyIfSubscriptionRequired } from "@/lib/query-client";
 import { fetch } from "expo/fetch";
 import { loadAllocationsFromCache, findById, CachedAllocation } from "@/lib/offlineCache";
 
@@ -108,6 +108,7 @@ async function loadAllocation() {
       );
 
       const res = await Promise.race([fetchPromise, timeoutPromise]);
+      notifyIfSubscriptionRequired(res);
       if (!res.ok) throw new Error("Not found");
       const data: Allocation = await res.json();
       setAllocation(data);
