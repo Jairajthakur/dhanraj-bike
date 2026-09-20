@@ -5,6 +5,8 @@ import * as XLSX from "xlsx";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import { Pool } from "pg";
+import { getSubscriptionInfo } from "./billing";
+import { registerBillingRoutes } from "./billingRoutes";
 import {
   ensureSchema,
   verifyPassword,
@@ -105,11 +107,66 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return true;
   }
 
+  // ── Auth guards ────────────────────────────────────────────────────────────
+  // requireSession      – logged in only (no subscription check). Used by billing,
+  //                       so a locked-out agency can still see status and pay.
+  // requireAdminNoBilling – admin only, no subscription check (start a payment).
+  // requireAuth / requireAdmin / requireRepo – the above PLUS an active trial or
+  //                       paid subscription; otherwise HTTP 402. Every data route
+  //                       uses these, so the paywall is enforced on the server and
+  //                       can't be bypassed by tampering with the app.
+
+  // Returns true if the caller may proceed; otherwise has already sent a 402.
+  async function subscriptionOk(req: Request, res: Response): Promise<boolean> {
+    const agency = await getAgencyById(req.session.agencyId!);
+    if (!agency) {
+      res.status(401).json({ message: "Agency not found" });
+      return false;
+    }
+    const subscription = getSubscriptionInfo(agency);
+    if (!subscription.hasAccess) {
+      res.status(402).json({
+        code: "SUBSCRIPTION_EXPIRED",
+        message:
+          req.session.role === "admin"
+            ? "Your free trial or subscription has ended. Please renew to continue."
+            : "Your agency's subscription has expired. Please ask your admin to renew it.",
+        subscription,
+      });
+      return false;
+    }
+    return true;
+  }
+
+  async function requireSession(req: Request, res: Response, next: any) {
+    try {
+      if (!(await hydrateAgency(req))) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+      next();
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  }
+
+  async function requireAdminNoBilling(req: Request, res: Response, next: any) {
+    try {
+      if (!(await hydrateAgency(req))) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+      if (req.session.role !== "admin") return res.status(403).json({ message: "Admin only" });
+      next();
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  }
+
   async function requireAuth(req: Request, res: Response, next: any) {
     try {
       if (!(await hydrateAgency(req))) {
         return res.status(401).json({ message: "Not authenticated" });
       }
+      if (!(await subscriptionOk(req, res))) return;
       next();
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -122,6 +179,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ message: "Not authenticated" });
       }
       if (req.session.role !== "admin") return res.status(403).json({ message: "Admin only" });
+      if (!(await subscriptionOk(req, res))) return;
       next();
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -136,11 +194,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (req.session.role !== "repo" && req.session.role !== "admin") {
         return res.status(403).json({ message: "Repo or Admin only" });
       }
+      if (!(await subscriptionOk(req, res))) return;
       next();
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }
   }
+
+  registerBillingRoutes(app, { requireSession, requireAdminNoBilling });
 
   // ── Agency registration (public) ───────────────────────────────────────────
   // Agency owner creates their agency profile here; a unique agency code is
@@ -177,6 +238,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           agencyId: agency.id,
           agencyName: agency.name,
           agencyCode: agency.code,
+          subscription: getSubscriptionInfo(agency),
         });
       });
     } catch (e: any) {
@@ -233,6 +295,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           agencyId: agency.id,
           agencyName: agency.name,
           agencyCode: agency.code,
+          subscription: getSubscriptionInfo(agency),
         });
       });
     } catch (e: any) {
@@ -262,6 +325,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         agencyId: agency.id,
         agencyName: agency.name,
         agencyCode: agency.code,
+        subscription: getSubscriptionInfo(agency),
       });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
