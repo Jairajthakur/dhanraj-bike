@@ -8,7 +8,7 @@ import { fetch } from "expo/fetch";
 const USER_STORAGE_KEY = "auth_user";
 
 export interface SubscriptionInfo {
-  // exempt = never pays (Dhanraj Enterprises); trial = 7-day free trial;
+  // exempt = never pays (a legacy/internal agency); trial = 7-day free trial;
   // active = paid up; expired = locked until the admin pays.
   status: "exempt" | "trial" | "active" | "expired";
   hasAccess: boolean;
