@@ -1,10 +1,25 @@
-import React, { createContext, useContext, useState, useEffect, useMemo, ReactNode } from "react";
+import React, { createContext, useContext, useState, useEffect, useMemo, useRef, ReactNode } from "react";
+import { AppState } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { apiRequest, getApiUrl, queryClient } from "@/lib/query-client";
+import { apiRequest, getApiUrl, queryClient, setSubscriptionRequiredHandler } from "@/lib/query-client";
 import { clearCache } from "@/lib/offlineCache";
 import { fetch } from "expo/fetch";
 
 const USER_STORAGE_KEY = "auth_user";
+
+export interface SubscriptionInfo {
+  // exempt = never pays (Dhanraj Enterprises); trial = 7-day free trial;
+  // active = paid up; expired = locked until the admin pays.
+  status: "exempt" | "trial" | "active" | "expired";
+  hasAccess: boolean;
+  trialEndsAt: string | null;
+  subscriptionEndsAt: string | null;
+  accessEndsAt: string | null;
+  daysLeft: number | null;
+  amount: number;
+  currency: string;
+  trialDays: number;
+}
 
 export interface AuthUser {
   id: number;
@@ -14,6 +29,18 @@ export interface AuthUser {
   agencyId: number;
   agencyName: string;
   agencyCode: string;
+  // Absent on responses from a server that predates billing — treated as no restriction.
+  subscription?: SubscriptionInfo;
+}
+
+// True when the agency must pay before using the app. Also checks the local clock
+// against accessEndsAt so a device locks at the moment of expiry even when it is
+// offline or hasn't re-contacted the server yet. (The server enforces it too.)
+export function isSubscriptionLocked(sub: SubscriptionInfo | undefined, now: number = Date.now()): boolean {
+  if (!sub || sub.status === "exempt") return false;
+  if (sub.status === "expired") return true;
+  if (sub.accessEndsAt && new Date(sub.accessEndsAt).getTime() <= now) return true;
+  return false;
 }
 
 interface AuthContextValue {
@@ -28,6 +55,8 @@ interface AuthContextValue {
     password: string;
   }) => Promise<void>;
   logout: () => Promise<void>;
+  // Re-reads the user + subscription from the server (e.g. after paying).
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -39,6 +68,50 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     checkMe();
   }, []);
+
+  const userRef = useRef<AuthUser | null>(null);
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
+
+  // Any 402 from the API means the subscription ended: re-check it so the root
+  // layout can show the paywall. Throttled so a burst of failing requests
+  // triggers a single refresh.
+  const refreshBusy = useRef(false);
+  useEffect(() => {
+    setSubscriptionRequiredHandler(() => {
+      if (refreshBusy.current) return;
+      refreshBusy.current = true;
+      refreshUser().finally(() => setTimeout(() => (refreshBusy.current = false), 3000));
+    });
+    return () => setSubscriptionRequiredHandler(null);
+  }, []);
+
+  // Coming back to the app (e.g. from the payment page, or after days in the
+  // background) picks up the latest subscription state.
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active" && userRef.current) refreshUser();
+    });
+    return () => sub.remove();
+  }, []);
+
+  async function refreshUser() {
+    try {
+      const res = await fetch(new URL("/api/auth/me", getApiUrl()).toString(), { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        setUser(data);
+        await AsyncStorage.setItem(USER_STORAGE_KEY, JSON.stringify(data));
+      } else if (res.status === 401) {
+        setUser(null);
+        await AsyncStorage.removeItem(USER_STORAGE_KEY);
+        await clearCache();
+      }
+    } catch {
+      // offline — keep whatever we have
+    }
+  }
 
   async function checkMe() {
     // 1. Load cached user first — app works immediately, even offline
@@ -111,7 +184,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const value = useMemo(
-    () => ({ user, isLoading, login, registerAgency, logout }),
+    () => ({ user, isLoading, login, registerAgency, logout, refreshUser }),
     [user, isLoading]
   );
 
