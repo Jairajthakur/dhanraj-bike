@@ -18,12 +18,14 @@
     "start": "npx expo start",
     "lint": "npx expo lint",
     "lint:fix": "npx expo lint --fix",
-    "export-db": "node export-db.js"
+    "export-db": "node export-db.js",
+    "android": "expo run:android",
+    "ios": "expo run:ios"
   },
   "dependencies": {
     "@expo-google-fonts/inter": "^0.4.0",
     "@expo/vector-icons": "^15.0.3",
-    "@react-native-async-storage/async-storage": "2.2.0",
+    "@react-native-async-storage/async-storage": "^2.1.2",
     "@replit/database": "^3.0.1",
     "@stardazed/streams-text-encoding": "^1.0.2",
     "@tanstack/react-query": "^5.83.0",
@@ -32,7 +34,6 @@
     "@types/express-session": "^1.18.2",
     "@types/multer": "^2.0.0",
     "@ungap/structured-clone": "^1.3.0",
-    "@react-native-async-storage/async-storage": "^2.1.2",
     "expo-network": "^7.1.0",
     "bcryptjs": "^3.0.3",
     "connect-pg-simple": "^10.0.0",
@@ -90,7 +91,8 @@
     "eslint": "^9.31.0",
     "eslint-config-expo": "~10.0.0",
     "patch-package": "^8.0.0",
-    "typescript": "~5.9.2"
+    "typescript": "~5.9.2",
+    "@expo/config-plugins": "~54.0.0"
   },
   "private": true
 }
