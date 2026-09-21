@@ -47,6 +47,16 @@ jobs:
           EXPO_PUBLIC_API_URL: https://dhanraj-bike-production.up.railway.app
           NODE_ENV: production
 
+      - name: Configure release signing
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android/app/release.keystore
+          cat > android/keystore.properties <<EOF
+          storeFile=release.keystore
+          storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}
+          keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}
+          EOF
+
       - name: Build Release APK
         run: |
           cd android
