@@ -44,25 +44,11 @@ jobs:
           EXPO_PUBLIC_API_URL: https://dhanraj-bike-production.up.railway.app
           NODE_ENV: production
 
-      - name: Configure release signing
-        run: |
-          if [ -z "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ]; then
-            echo "::error::ANDROID_KEYSTORE_BASE64 secret is missing or empty. Add the 4 required secrets in repo Settings > Secrets and variables > Actions before running this workflow."
-            exit 1
-          fi
-          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android/app/release.keystore
-          cat > android/keystore.properties <<EOF
-          storeFile=release.keystore
-          storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}
-          keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}
-          EOF
-
-      - name: Build Release APK
+      - name: Build Debug APK
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew assembleRelease --no-daemon \
+          ./gradlew assembleDebug --no-daemon \
             -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=1g" \
             -Dkotlin.daemon.jvm.options="-Xmx2g -XX:MaxMetaspaceSize=512m" \
             2>&1 | tee build.log
@@ -82,6 +68,6 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: bike-recovery-release.apk
-          path: android/app/build/outputs/apk/release/app-release.apk
+          name: bike-recovery-debug.apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
