@@ -49,6 +49,10 @@ jobs:
 
       - name: Configure release signing
         run: |
+          if [ -z "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ]; then
+            echo "::error::ANDROID_KEYSTORE_BASE64 secret is missing or empty. Add the 4 required secrets in repo Settings > Secrets and variables > Actions before running this workflow."
+            exit 1
+          fi
           echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android/app/release.keystore
           cat > android/keystore.properties <<EOF
           storeFile=release.keystore
