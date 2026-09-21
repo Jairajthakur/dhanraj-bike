@@ -46,7 +46,8 @@
           "color": "#F59E0B",
           "androidMode": "default"
         }
-      ]
+      ],
+      "./plugins/withAndroidReleaseSigning.cjs"
     ],
     "experiments": {
       "typedRoutes": true,
