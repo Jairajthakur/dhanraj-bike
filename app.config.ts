@@ -5,11 +5,11 @@ export default ({ config }: ConfigContext): ExpoConfig => {
   const replitDomain = process.env.REPLIT_DEV_DOMAIN;
 
   const apiUrl = process.env.EXPO_PUBLIC_API_URL || 
-    (replitDomain ? `https://${replitDomain}` : "https://app.dhanraj.co.in");
+    (replitDomain ? `https://${replitDomain}` : "https://app.thdhanraj.co.in");
 
   const origin = replitDomain
     ? `https://${replitDomain}:3001`
-    : "https://app.dhanraj.co.in";
+    : "https://app.thdhanraj.co.in";
 
   const androidVersionCode = process.env.ANDROID_VERSION_CODE
     ? parseInt(process.env.ANDROID_VERSION_CODE, 10)
