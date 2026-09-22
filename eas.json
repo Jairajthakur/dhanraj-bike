@@ -10,7 +10,7 @@
     "preview": {
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_DOMAIN": "https://app.dhanraj.co.in"
+        "EXPO_PUBLIC_DOMAIN": "https://app.thdhanraj.co.in"
       }
     },
     "production": {
@@ -20,7 +20,7 @@
         "autoIncrement": false
       },
       "env": {
-        "EXPO_PUBLIC_DOMAIN": "https://app.dhanraj.co.in"
+        "EXPO_PUBLIC_DOMAIN": "https://app.thdhanraj.co.in"
       }
     }
   },
