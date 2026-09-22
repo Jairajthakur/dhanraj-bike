@@ -21,7 +21,7 @@ import {
 import { renderCheckoutPage, renderMessagePage, renderReturnPage, type ReturnState } from "./billingPages";
 
 // Base URL Cashfree redirects/notifies back to. Set PUBLIC_BASE_URL in production
-// (e.g. https://app.dhanraj.co.in); otherwise it is derived from the request.
+// (e.g. https://app.thdhanraj.co.in); otherwise it is derived from the request.
 function publicBaseUrl(req: Request): string {
   if (process.env.PUBLIC_BASE_URL) return process.env.PUBLIC_BASE_URL.replace(/\/+$/, "");
   const proto = req.header("x-forwarded-proto") || req.protocol || "https";
