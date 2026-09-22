@@ -11,8 +11,19 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     ? `https://${replitDomain}:3001`
     : "https://app.dhanraj.co.in";
 
+  const androidVersionCode = process.env.ANDROID_VERSION_CODE
+    ? parseInt(process.env.ANDROID_VERSION_CODE, 10)
+    : baseConfig.expo.android?.versionCode;
+
+  const appVersion = process.env.APP_VERSION_NAME || baseConfig.expo.version;
+
   return {
     ...baseConfig.expo,
+    version: appVersion,
+    android: {
+      ...baseConfig.expo.android,
+      versionCode: androidVersionCode,
+    },
     owner: "jairaj123",
     extra: {
       ...baseConfig.expo.extra,
