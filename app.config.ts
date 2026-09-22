@@ -24,7 +24,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       ...baseConfig.expo.android,
       versionCode: androidVersionCode,
     },
-    owner: "jairaj123",
+    owner: "jai234",
     extra: {
       ...baseConfig.expo.extra,
       apiUrl,
