@@ -228,8 +228,17 @@ function configureExpoAndLanding(app: express.Application) {
   }
 
   const appName = getAppName();
-  log("Serving static Expo files with dynamic manifest routing");
 
+  // The QR-code / "Open in Expo Go" page used to live at "/", which meant a
+  // normal desktop or mobile browser visiting the site never saw the actual
+  // app — only instructions for installing Expo Go. It now lives at
+  // /preview, and "/" serves the real web build of the app (see below).
+  app.get("/preview", (req: Request, res: Response) => {
+    serveLandingPage({ req, res, landingPageTemplate, appName });
+  });
+
+  // Native OTA manifest routing (used by EAS Update / the production
+  // native app requesting the latest published JS bundle over-the-air).
   app.use((req: Request, res: Response, next: NextFunction) => {
     try {
       if (req.path.startsWith("/api")) return next();
@@ -238,19 +247,65 @@ function configureExpoAndLanding(app: express.Application) {
       if (platform && (platform === "ios" || platform === "android")) {
         return serveExpoManifest(platform, res);
       }
-      if (req.path === "/") {
-        return serveLandingPage({ req, res, landingPageTemplate, appName });
-      }
       next();
     } catch (err) {
-      console.error("Error handling landing/manifest route:", err);
+      console.error("Error handling manifest route:", err);
       res.status(500).send("Internal Server Error");
     }
   });
 
-  app.use("/assets", express.static(path.resolve(process.cwd(), "assets")));
+  // Native OTA update bundles (JS bundles published via `expo export` for
+  // ios/android, consumed by the installed native app, not by browsers).
   app.use(express.static(path.resolve(process.cwd(), "static-build")));
-  log("Expo routing: Checking expo-platform header on / and /manifest");
+
+  // Web build of the app itself, produced by `npx expo export -p web`
+  // (see package.json's "build:web" script). Ships as a set of prerendered
+  // HTML "shells" — one per route — that all load the same JS bundle and
+  // then hydrate client-side, plus the static asset files they reference.
+  const webDistPath = path.resolve(process.cwd(), "dist");
+  const hasWebBuild = fs.existsSync(path.join(webDistPath, "index.html"));
+
+  if (hasWebBuild) {
+    log(`Serving web app build from ${webDistPath}`);
+    app.use(
+      express.static(webDistPath, {
+        // lets "/login" resolve to "dist/login.html", "/" resolve to
+        // "dist/index.html", etc.
+        extensions: ["html"],
+      })
+    );
+  } else {
+    console.warn(
+      `Warning: no web build found at ${webDistPath}. Run "npm run build:web" ` +
+        `(or the full "npm run build") to generate it. Falling back to the ` +
+        `Expo Go preview page at "/".`
+    );
+    app.get("/", (req: Request, res: Response) => {
+      serveLandingPage({ req, res, landingPageTemplate, appName });
+    });
+  }
+
+  // Raw project assets (referenced directly by URL from legal pages, etc).
+  app.use("/assets", express.static(path.resolve(process.cwd(), "assets")));
+
+  if (hasWebBuild) {
+    // SPA fallback: expo-router's static export only prerenders one HTML
+    // shell per route file (e.g. "allocation/[id].html" for the dynamic
+    // "/allocation/:id" route), so a request for a concrete URL like
+    // "/allocation/42" won't match a file on disk above. For any GET that
+    // isn't an API call and isn't a request for a file with an extension
+    // (js/css/png/etc — those should 404 normally if missing), hand back
+    // index.html and let the client-side router in the already-loaded app
+    // resolve the real route from the URL.
+    app.use((req: Request, res: Response, next: NextFunction) => {
+      if (req.method !== "GET" && req.method !== "HEAD") return next();
+      if (req.path.startsWith("/api")) return next();
+      if (path.extname(req.path)) return next();
+      res.sendFile(path.join(webDistPath, "index.html"));
+    });
+  }
+
+  log("Expo routing: web app on \"/\", Expo Go preview on \"/preview\"");
 }
 
 function setupErrorHandler(app: express.Application) {
