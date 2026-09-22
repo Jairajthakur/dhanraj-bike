@@ -217,6 +217,63 @@ export async function updateAgency(
   return result.rows[0];
 }
 
+// ── Super admin (cross-agency) ───────────────────────────────────────────────
+// Everything below is scoped to NO single agency on purpose — only reachable
+// through requireSuperAdmin in routes.ts, never through the normal per-agency
+// requireAdmin guard.
+export interface AgencyWithStats extends Agency {
+  user_count: number;
+  allocation_count: number;
+  repo_allocation_count: number;
+}
+
+export async function getAllAgenciesWithStats(): Promise<AgencyWithStats[]> {
+  const result = await pool.query(`
+    SELECT
+      a.*,
+      COALESCE(u.cnt, 0)::int AS user_count,
+      COALESCE(al.cnt, 0)::int AS allocation_count,
+      COALESCE(ra.cnt, 0)::int AS repo_allocation_count
+    FROM agencies a
+    LEFT JOIN (SELECT agency_id, COUNT(*) cnt FROM users GROUP BY agency_id) u ON u.agency_id = a.id
+    LEFT JOIN (SELECT agency_id, COUNT(*) cnt FROM allocations GROUP BY agency_id) al ON al.agency_id = a.id
+    LEFT JOIN (SELECT agency_id, COUNT(*) cnt FROM repo_allocations GROUP BY agency_id) ra ON ra.agency_id = a.id
+    ORDER BY a.created_at DESC
+  `);
+  return result.rows;
+}
+
+export async function setAgencyActive(id: number, is_active: boolean): Promise<Agency> {
+  const result = await pool.query(
+    "UPDATE agencies SET is_active = $2 WHERE id = $1 RETURNING *",
+    [id, is_active]
+  );
+  return result.rows[0];
+}
+
+export async function setAgencyBillingExempt(id: number, billing_exempt: boolean): Promise<Agency> {
+  const result = await pool.query(
+    "UPDATE agencies SET billing_exempt = $2 WHERE id = $1 RETURNING *",
+    [id, billing_exempt]
+  );
+  return result.rows[0];
+}
+
+// Extends (or sets, if the agency currently has no paid time left) the paid
+// period by `months`, counting from whichever is later: now, or the agency's
+// existing subscription_ends_at. Lets a super admin manually comp/extend an
+// agency without going through Cashfree.
+export async function extendAgencySubscription(id: number, months: number): Promise<Agency> {
+  const result = await pool.query(
+    `UPDATE agencies SET
+       subscription_ends_at = GREATEST(COALESCE(subscription_ends_at, NOW()), NOW())
+         + make_interval(months => $2)
+     WHERE id = $1 RETURNING *`,
+    [id, months]
+  );
+  return result.rows[0];
+}
+
 // Registers a new agency + its first admin (owner) user in one transaction.
 export async function createAgencyWithOwner(data: {
   agencyName: string;
