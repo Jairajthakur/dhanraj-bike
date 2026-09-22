@@ -76,7 +76,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       resave: false,
       saveUninitialized: false,
       cookie: {
-        secure: false,
+        // "auto" marks the cookie Secure whenever the request is HTTPS
+        // (respecting the "trust proxy" setting, so it works correctly
+        // behind Railway's TLS-terminating proxy) and non-Secure over plain
+        // HTTP for local dev. This matters because browsers silently reject
+        // any cookie marked SameSite=None unless it is also Secure — with
+        // secure:false that rejection was happening on every web login.
+        secure: "auto",
         httpOnly: true,
         maxAge: 7 * 24 * 60 * 60 * 1000,
         sameSite: "none",
