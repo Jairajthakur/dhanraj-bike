@@ -1,0 +1,14 @@
+node_modules
+.git
+.expo
+.local
+.config
+dist
+static-build
+server_dist
+.env
+.env.*
+npm-debug.log
+attached_assets
+android
+ios
