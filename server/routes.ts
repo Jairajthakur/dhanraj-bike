@@ -39,6 +39,10 @@ import {
   clearRepoAllocations,
   getRepoAllocationCount,
   updateUserPushToken,
+  getAllAgenciesWithStats,
+  setAgencyActive,
+  setAgencyBillingExempt,
+  extendAgencySubscription,
 } from "./storage";
 
 declare module "express-session" {
@@ -200,6 +204,80 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: e.message });
     }
   }
+
+  // super_admin sits above every agency — no subscription check applies to
+  // it (there's no agency to bill), and it must never be reachable via
+  // requireAdmin, which is scoped to the caller's own agency_id.
+  async function requireSuperAdmin(req: Request, res: Response, next: any) {
+    try {
+      if (!(await hydrateAgency(req))) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+      if (req.session.role !== "super_admin") {
+        return res.status(403).json({ message: "Super admin only" });
+      }
+      next();
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  }
+
+  // ── Super admin: cross-agency management ───────────────────────────────────
+  app.get("/api/super-admin/agencies", requireSuperAdmin, async (_req, res) => {
+    try {
+      const agencies = await getAllAgenciesWithStats();
+      res.json(
+        agencies.map((a) => ({
+          ...a,
+          subscription: getSubscriptionInfo(a),
+        }))
+      );
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.patch("/api/super-admin/agencies/:id/active", requireSuperAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const { is_active } = req.body;
+      if (typeof is_active !== "boolean") {
+        return res.status(400).json({ message: "is_active must be true or false" });
+      }
+      const agency = await setAgencyActive(id, is_active);
+      res.json(agency);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.patch("/api/super-admin/agencies/:id/billing-exempt", requireSuperAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const { billing_exempt } = req.body;
+      if (typeof billing_exempt !== "boolean") {
+        return res.status(400).json({ message: "billing_exempt must be true or false" });
+      }
+      const agency = await setAgencyBillingExempt(id, billing_exempt);
+      res.json(agency);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/super-admin/agencies/:id/extend", requireSuperAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const months = parseInt(req.body.months, 10);
+      if (!Number.isFinite(months) || months <= 0) {
+        return res.status(400).json({ message: "months must be a positive number" });
+      }
+      const agency = await extendAgencySubscription(id, months);
+      res.json(agency);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
 
   registerBillingRoutes(app, { requireSession, requireAdminNoBilling });
 
