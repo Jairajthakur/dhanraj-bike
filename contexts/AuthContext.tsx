@@ -24,7 +24,7 @@ export interface SubscriptionInfo {
 export interface AuthUser {
   id: number;
   username: string;
-  role: "admin" | "fos" | "repo";
+  role: "super_admin" | "admin" | "fos" | "repo";
   fullName: string;
   agencyId: number;
   agencyName: string;
