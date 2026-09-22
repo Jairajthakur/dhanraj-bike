@@ -17,6 +17,10 @@ export default function Index() {
     return <Redirect href="/login" />;
   }
 
+  if (user.role === "super_admin") {
+    return <Redirect href="/(super-admin)/agencies" />;
+  }
+
   if (isSubscriptionLocked(user.subscription)) {
     return <Redirect href="/subscription" />;
   }
