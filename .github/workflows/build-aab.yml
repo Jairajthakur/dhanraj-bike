@@ -1,14 +1,33 @@
-name: Build Android AAB
+name: Build Production AAB (Play Store)
+
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
+    inputs:
+      version_code:
+        description: 'Android versionCode (increment each release, e.g. 1, 2, 3...)'
+        required: false
+        default: ''
+      version_name:
+        description: 'App version name shown to users (e.g. 1.1.0)'
+        required: false
+        default: ''
+      force_update:
+        description: 'Force users to update? (true/false)'
+        required: false
+        default: 'false'
+      update_message:
+        description: 'Custom update message shown to users'
+        required: false
+        default: ''
 
 jobs:
-  build:
-    name: Build AAB
+  build-aab:
+    name: Build Production AAB
     runs-on: ubuntu-latest
+
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -16,58 +35,129 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: '20'
 
       - name: Setup Java
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v4
         with:
-          distribution: temurin
-          java-version: 17
+          distribution: 'temurin'
+          java-version: '17'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-        with:
-          packages: platform-tools
-
-      - name: Configure Gradle memory
+      - name: Validate required secrets
         run: |
-          mkdir -p ~/.gradle
-          echo "org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g -XX:+HeapDumpOnOutOfMemoryError" >> ~/.gradle/gradle.properties
-          echo "kotlin.daemon.jvm.options=-Xmx2g -XX:MaxMetaspaceSize=512m" >> ~/.gradle/gradle.properties
+          MISSING=""
+          [ -z "$EXPO_TOKEN" ]      && MISSING="$MISSING EXPO_TOKEN"
+          [ -z "$EXPO_PROJECT_ID" ] && MISSING="$MISSING EXPO_PROJECT_ID"
+          if [ -n "$MISSING" ]; then
+            echo "❌ Missing required secrets:$MISSING"
+            exit 1
+          fi
+          echo "✅ All required secrets present."
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          EXPO_PROJECT_ID: ${{ secrets.EXPO_PROJECT_ID }}
 
       - name: Install dependencies
         run: npm install --legacy-peer-deps
 
-      - name: Expo prebuild
-        run: npx expo prebuild --platform android --clean
-        env:
-          EXPO_PUBLIC_API_URL: https://dhanraj-bike-production.up.railway.app
-          NODE_ENV: production
+      - name: Install EAS CLI
+        run: npm install -g eas-cli@latest
 
-      - name: Build Debug AAB
+      - name: Write google-services.json (if configured)
         run: |
-          cd android
-          chmod +x gradlew
-          ./gradlew bundleDebug --no-daemon \
-            -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=1g" \
-            -Dkotlin.daemon.jvm.options="-Xmx2g -XX:MaxMetaspaceSize=512m" \
-            2>&1 | tee build.log
-          exit ${PIPESTATUS[0]}
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
+            echo "$GOOGLE_SERVICES_JSON" > google-services.json
+            node -e "JSON.parse(require('fs').readFileSync('google-services.json','utf8'))" \
+              && echo "✅ google-services.json is valid JSON." \
+              || { echo "❌ GOOGLE_SERVICES_JSON secret is not valid JSON."; exit 1; }
+            echo "GOOGLE_SERVICES_JSON_PATH=$(pwd)/google-services.json" >> $GITHUB_ENV
+          else
+            echo "ℹ️  GOOGLE_SERVICES_JSON not set — skipping (app has no Firebase config)."
+          fi
         env:
-          EXPO_PUBLIC_API_URL: https://dhanraj-bike-production.up.railway.app
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+
+      - name: Build production AAB
+        run: |
+          eas build \
+            --platform android \
+            --profile production \
+            --local \
+            --output ./DhanrajBike-release.aab \
+            --non-interactive
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          EXPO_PROJECT_ID: ${{ secrets.EXPO_PROJECT_ID }}
           NODE_ENV: production
+          ANDROID_VERSION_CODE: ${{ inputs.version_code || secrets.ANDROID_VERSION_CODE || github.run_number }}
+          EXPO_PUBLIC_API_URL: ${{ secrets.EXPO_PUBLIC_API_URL }}
+          GOOGLE_SERVICES_JSON_PATH: ${{ env.GOOGLE_SERVICES_JSON_PATH }}
 
-      - name: Upload build log on failure
-        if: failure()
+      - name: Verify AAB was produced
+        run: |
+          if [ ! -f ./DhanrajBike-release.aab ]; then
+            echo "❌ DhanrajBike-release.aab not found — build may have silently failed."
+            exit 1
+          fi
+          SIZE=$(du -sh ./DhanrajBike-release.aab | cut -f1)
+          echo "✅ DhanrajBike-release.aab produced — size: $SIZE"
+
+      - name: Upload AAB artifact
         uses: actions/upload-artifact@v4
         with:
-          name: aab-build-log
-          path: android/build.log
-          if-no-files-found: warn
-
-      - name: Upload AAB
-        uses: actions/upload-artifact@v4
-        with:
-          name: bike-recovery-debug.aab
-          path: android/app/build/outputs/bundle/debug/app-debug.aab
+          name: DhanrajBike-AAB-${{ github.run_number }}
+          path: ./DhanrajBike-release.aab
           retention-days: 30
+
+      - name: Update Railway version env vars
+        # Automatically updates ANDROID_VERSION_CODE on Railway so the
+        # backend /api/app/version endpoint returns the new version and
+        # users get prompted to update — no manual Railway config needed.
+        # Skips gracefully if RAILWAY_API_TOKEN or RAILWAY_SERVICE_ID are not set.
+        env:
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          RAILWAY_SERVICE_ID: ${{ secrets.RAILWAY_SERVICE_ID }}
+          RAILWAY_ENVIRONMENT: production
+          NEW_VERSION_CODE: ${{ inputs.version_code || secrets.ANDROID_VERSION_CODE || github.run_number }}
+          NEW_VERSION_NAME: ${{ inputs.version_name || '1.0.0' }}
+          FORCE_UPDATE: ${{ inputs.force_update || 'false' }}
+          UPDATE_MESSAGE: ${{ inputs.update_message || '' }}
+        run: |
+          if [ -z "$RAILWAY_API_TOKEN" ] || [ -z "$RAILWAY_SERVICE_ID" ]; then
+            echo "⚠️  RAILWAY_API_TOKEN or RAILWAY_SERVICE_ID not set — skipping Railway update."
+            exit 0
+          fi
+
+          echo "📦 Updating Railway env: ANDROID_VERSION_CODE=$NEW_VERSION_CODE"
+
+          VARS="{\"ANDROID_VERSION_CODE\": \"$NEW_VERSION_CODE\", \"ANDROID_VERSION_NAME\": \"$NEW_VERSION_NAME\", \"FORCE_UPDATE\": \"$FORCE_UPDATE\""
+          if [ -n "$UPDATE_MESSAGE" ]; then
+            VARS="$VARS, \"UPDATE_MESSAGE\": \"$UPDATE_MESSAGE\""
+          fi
+          VARS="$VARS}"
+
+          RESPONSE=$(curl -s -X POST "https://backboard.railway.app/graphql/v2" \
+            -H "Authorization: Bearer $RAILWAY_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"query\": \"mutation UpsertVariables(\$input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: \$input) }\",
+              \"variables\": {
+                \"input\": {
+                  \"projectId\": null,
+                  \"serviceId\": \"$RAILWAY_SERVICE_ID\",
+                  \"environmentId\": \"$RAILWAY_ENVIRONMENT\",
+                  \"variables\": $VARS
+                }
+              }
+            }")
+
+          if echo "$RESPONSE" | grep -q '"variableCollectionUpsert":true'; then
+            echo "✅ Railway env vars updated successfully."
+            echo "   ANDROID_VERSION_CODE = $NEW_VERSION_CODE"
+            echo "   ANDROID_VERSION_NAME = $NEW_VERSION_NAME"
+            echo "   FORCE_UPDATE         = $FORCE_UPDATE"
+          else
+            echo "⚠️  Railway update response: $RESPONSE"
+            echo "   Update may have failed — check RAILWAY_API_TOKEN and RAILWAY_SERVICE_ID secrets."
+            echo "   App will still build correctly. Update Railway manually if needed."
+          fi
