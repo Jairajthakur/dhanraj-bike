@@ -17,7 +17,7 @@
       "distribution": "store",
       "android": {
         "buildType": "app-bundle",
-        "autoIncrement": true
+        "autoIncrement": false
       },
       "env": {
         "EXPO_PUBLIC_DOMAIN": "https://app.dhanraj.co.in"
