@@ -7,14 +7,17 @@ import { QueryClient, QueryFunction } from "@tanstack/react-query";
  * - On web (production or dev): uses window.location.origin so the web app
  *   always talks to the same server that served the HTML (no hardcoded port).
  * - On native (Expo Go / APK): uses the EXPO_PUBLIC_DOMAIN env var which is
- *   injected by the dev workflow or baked in at EAS build time.
+ *   injected by the dev workflow or baked in at EAS build time. Accepts the
+ *   value with or without a protocol (eas.json sets a full "https://..."
+ *   URL, other places set a bare host) and falls back to the app's real
+ *   production domain, not a stale/unrelated Railway URL.
  */
 export function getApiUrl(): string {
   if (Platform.OS === "web" && typeof window !== "undefined") {
     return window.location.origin;
   }
-  const host = process.env.EXPO_PUBLIC_DOMAIN;
-  return `https://${host || "dhanraj-bike-production.up.railway.app"}`;
+  const host = process.env.EXPO_PUBLIC_DOMAIN || "app.thdhanraj.co.in";
+  return /^https?:\/\//i.test(host) ? host : `https://${host}`;
 }
 
 // ── Subscription paywall hook ────────────────────────────────────────────────
