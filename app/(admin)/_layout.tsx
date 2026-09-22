@@ -222,6 +222,18 @@ function ClassicTabLayout({ unreadCount }: { unreadCount: number }) {
   );
 }
 
+// expo-glass-effect targets iOS 26+; on other platforms (web included) calling
+// isLiquidGlassAvailable() isn't guaranteed to be a safe no-op across every
+// SDK version, so this always resolves the classic tab bar off-native.
+function liquidGlassAvailable(): boolean {
+  if (Platform.OS !== "ios") return false;
+  try {
+    return isLiquidGlassAvailable();
+  } catch {
+    return false;
+  }
+}
+
 export default function AdminLayout() {
   const { user } = useAuth();
   const [unreadCount, setUnreadCount] = useState(0);
@@ -286,7 +298,7 @@ export default function AdminLayout() {
 
   return (
     <View style={{ flex: 1 }}>
-      {isLiquidGlassAvailable() ? (
+      {liquidGlassAvailable() ? (
         <NativeTabLayout unreadCount={unreadCount} />
       ) : (
         <ClassicTabLayout unreadCount={unreadCount} />
