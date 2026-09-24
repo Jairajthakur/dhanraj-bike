@@ -300,6 +300,12 @@ function configureExpoAndLanding(app: express.Application) {
     app.use((req: Request, res: Response, next: NextFunction) => {
       if (req.method !== "GET" && req.method !== "HEAD") return next();
       if (req.path.startsWith("/api")) return next();
+      // Server-rendered payment pages (checkout launcher, Cashfree return page)
+      // live under "/billing" and are registered later by registerRoutes(). They
+      // must not be swallowed by the SPA shell, or the app's own client-side
+      // router renders its "this screen doesn't exist" page instead of the
+      // actual checkout/return HTML the server sends.
+      if (req.path.startsWith("/billing")) return next();
       if (path.extname(req.path)) return next();
       res.sendFile(path.join(webDistPath, "index.html"));
     });
